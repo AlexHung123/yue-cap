@@ -7,7 +7,7 @@
 # ----------------------------------------------------------
 # The native library calls into WhisperLib by exact method name,
 # so every member must survive shrinking and renaming.
--keep class com.voiceping.offlinetranscription.service.WhisperLib { *; }
+-keep class com.csc.yuecap.service.WhisperLib { *; }
 
 # Generic safety net: keep any class that declares a native method
 -keepclasseswithmembernames class * {
@@ -17,7 +17,7 @@
 # ----------------------------------------------------------
 # Application class (referenced by name in AndroidManifest)
 # ----------------------------------------------------------
--keep class com.voiceping.offlinetranscription.OfflineTranscriptionApp { *; }
+-keep class com.csc.yuecap.OfflineTranscriptionApp { *; }
 
 # ----------------------------------------------------------
 # Room: entities, DAOs, and database

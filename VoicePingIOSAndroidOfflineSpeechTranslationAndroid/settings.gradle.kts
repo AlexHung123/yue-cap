@@ -16,5 +16,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "VoicePingIOSAndroidOfflineSpeechTranslation"
+rootProject.name = "YueCap"
 include(":app")

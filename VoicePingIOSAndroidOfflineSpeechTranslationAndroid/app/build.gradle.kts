@@ -10,11 +10,11 @@ ksp {
 }
 
 android {
-    namespace = "com.voiceping.offlinetranscription"
+    namespace = "com.csc.yuecap"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.voiceping.translate"
+        applicationId = "com.csc.yuecap"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
