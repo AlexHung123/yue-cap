@@ -10,24 +10,16 @@ uv venv --python 3.11 .venv   # or: python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt   # or: uv pip install -r requirements.txt
 
-mkdir -p models && cd models
-curl -L -o sensevoice.tar.bz2 \
-  "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2"
-tar xjf sensevoice.tar.bz2
-cd ..
+# Model weights are NOT in git. First `python server.py` auto-downloads
+# sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17 (~200MB+) into models/.
 ```
-
-Required files:
-
-- `models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx`
-- `models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt`
 
 ## Run
 
 ```bash
 source .venv/bin/activate
 python server.py
-# listens on 0.0.0.0:8005
+# first run downloads the model if missing, then listens on 0.0.0.0:8005
 ```
 
 Optional env: `ASR_HOST`, `ASR_PORT` (default 8005), `ASR_THREADS`, `SENSEVOICE_DIR`.

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import io
 import os
+import tarfile
+import urllib.request
 import wave
 from pathlib import Path
 
@@ -12,10 +14,15 @@ import uvicorn
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import JSONResponse
 
+MODEL_NAME = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+MODEL_URL = (
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
+    f"{MODEL_NAME}.tar.bz2"
+)
 MODEL_DIR = Path(
     os.environ.get(
         "SENSEVOICE_DIR",
-        str(Path(__file__).resolve().parent / "models" / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"),
+        str(Path(__file__).resolve().parent / "models" / MODEL_NAME),
     )
 )
 NUM_THREADS = int(os.environ.get("ASR_THREADS", "4"))
@@ -24,9 +31,56 @@ PORT = int(os.environ.get("ASR_PORT", "8005"))
 
 ALLOWED_LANG = {"auto", "zh", "en", "yue", "ja", "ko", "nospeech"}
 
+
+def ensure_model(model_dir: Path) -> tuple[Path, Path]:
+    """Download and extract SenseVoice weights if model.int8.onnx / tokens.txt are missing."""
+    model_path = model_dir / "model.int8.onnx"
+    tokens_path = model_dir / "tokens.txt"
+    if model_path.is_file() and tokens_path.is_file():
+        return model_path, tokens_path
+
+    models_root = model_dir.parent
+    models_root.mkdir(parents=True, exist_ok=True)
+    archive = models_root / f"{MODEL_NAME}.tar.bz2"
+
+    print(f"[asr] SenseVoice model missing under {model_dir}")
+    print(f"[asr] Downloading {MODEL_URL}")
+    print("[asr] This is ~200MB+ and may take a few minutes…")
+
+    def _progress(block_num: int, block_size: int, total_size: int) -> None:
+        if total_size <= 0:
+            return
+        done = block_num * block_size
+        pct = min(100.0, done * 100.0 / total_size)
+        if block_num % 50 == 0 or done >= total_size:
+            print(f"\r[asr] download {pct:5.1f}%", end="", flush=True)
+
+    urllib.request.urlretrieve(MODEL_URL, archive, reporthook=_progress)
+    print()
+    print(f"[asr] Extracting {archive.name} → {models_root}")
+    with tarfile.open(archive, "r:bz2") as tar:
+        tar.extractall(path=models_root)
+
+    # Keep archive optional; delete to save disk.
+    try:
+        archive.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+    if not model_path.is_file() or not tokens_path.is_file():
+        raise SystemExit(
+            f"Download finished but files still missing:\n"
+            f"  {model_path}\n  {tokens_path}"
+        )
+    print("[asr] Model ready.")
+    return model_path, tokens_path
+
+
+_model, _tokens = ensure_model(MODEL_DIR)
+print(f"[asr] Loading {_model}")
 recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-    model=str(MODEL_DIR / "model.int8.onnx"),
-    tokens=str(MODEL_DIR / "tokens.txt"),
+    model=str(_model),
+    tokens=str(_tokens),
     use_itn=True,
     language="auto",
     num_threads=NUM_THREADS,
@@ -71,10 +125,6 @@ async def asr(
     if lang not in ALLOWED_LANG:
         lang = "yue"
 
-    # Recreate stream with requested language hint when possible.
-    # OfflineRecognizer.from_sense_voice bakes language at init; for per-request
-    # language we pass via create_stream only if supported — otherwise decode with
-    # the shared recognizer (auto) and report the requested lang.
     stream = recognizer.create_stream()
     stream.accept_waveform(sample_rate, samples)
     recognizer.decode_stream(stream)
