@@ -126,3 +126,6 @@ venv/
 
 # === Claude / AI tooling ===
 .claude/
+
+# === SenseVoice / Spark A (download from sherpa-onnx releases; see servers/asr/README.md) ===
+servers/asr/models/
