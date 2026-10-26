@@ -20,7 +20,7 @@ MODEL_DIR = Path(
 )
 NUM_THREADS = int(os.environ.get("ASR_THREADS", "4"))
 HOST = os.environ.get("ASR_HOST", "0.0.0.0")
-PORT = int(os.environ.get("ASR_PORT", "8000"))
+PORT = int(os.environ.get("ASR_PORT", "8005"))
 
 ALLOWED_LANG = {"auto", "zh", "en", "yue", "ja", "ko", "nospeech"}
 

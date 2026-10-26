@@ -27,15 +27,15 @@ Required files:
 ```bash
 source .venv/bin/activate
 python server.py
-# listens on 0.0.0.0:8000
+# listens on 0.0.0.0:8005
 ```
 
-Optional env: `ASR_HOST`, `ASR_PORT` (default 8000), `ASR_THREADS`, `SENSEVOICE_DIR`.
+Optional env: `ASR_HOST`, `ASR_PORT` (default 8005), `ASR_THREADS`, `SENSEVOICE_DIR`.
 
 ## Smoke test
 
 ```bash
-curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:8005/health
 ```
 
-YueCap Oppo: `asr_mode=REMOTE_SPARK_A`, `asr_base_url=http://<mac-lan-ip>:8000`.
+YueCap Oppo: `asr_mode=REMOTE_SPARK_A`, `asr_base_url=http://<mac-lan-ip>:8005`.
