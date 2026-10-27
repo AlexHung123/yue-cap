@@ -11,6 +11,8 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import com.csc.yuecap.service.MediaProjectionService
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -44,6 +46,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.sp
 import com.csc.yuecap.service.ConnectionTestResult
@@ -629,15 +632,18 @@ private val captionFontSizeLabels = mapOf(
     34 to "Extra Large"
 )
 
-/** Oppo-style discrete font slider: blue capsule track, small white stop dots, large white circle thumb. */
+/** Oppo-style discrete slider: blue capsule track, small white stop dots, large white circle thumb. */
 @Composable
-private fun FiveStopCaptionSizeSlider(
+private fun DiscreteStopsSlider(
     selectedIndex: Int,
     stopCount: Int,
     onIndexSelected: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentDescription: String = "Discrete slider"
 ) {
-    val trackBlue = Color(0xFF2F6BFF)
+    val trackBlue = if (enabled) Color(0xFF2F6BFF) else Color(0xFF2F6BFF).copy(alpha = 0.35f)
+    val markColor = if (enabled) Color.White else Color.White.copy(alpha = 0.45f)
     val density = LocalDensity.current
     fun indexFromX(x: Float, width: Float): Int {
         if (width <= 0f || stopCount <= 1) return 0
@@ -649,18 +655,25 @@ private fun FiveStopCaptionSizeSlider(
         modifier = modifier
             .fillMaxWidth()
             .height(44.dp)
-            .semantics { contentDescription = "Caption font size slider" }
-            .pointerInput(stopCount) {
-                detectTapGestures { offset ->
-                    onIndexSelected(indexFromX(offset.x, size.width.toFloat()))
+            .semantics { this.contentDescription = contentDescription }
+            .then(
+                if (enabled) {
+                    Modifier
+                        .pointerInput(stopCount) {
+                            detectTapGestures { offset ->
+                                onIndexSelected(indexFromX(offset.x, size.width.toFloat()))
+                            }
+                        }
+                        .pointerInput(stopCount) {
+                            detectDragGestures { change, _ ->
+                                change.consume()
+                                onIndexSelected(indexFromX(change.position.x, size.width.toFloat()))
+                            }
+                        }
+                } else {
+                    Modifier
                 }
-            }
-            .pointerInput(stopCount) {
-                detectDragGestures { change, _ ->
-                    change.consume()
-                    onIndexSelected(indexFromX(change.position.x, size.width.toFloat()))
-                }
-            },
+            ),
         contentAlignment = Alignment.CenterStart
     ) {
         val widthPx = with(density) { maxWidth.toPx() }
@@ -684,13 +697,13 @@ private fun FiveStopCaptionSizeSlider(
                 val cy = heightPx / 2f
                 if (i == selectedIndex) {
                     drawCircle(
-                        color = Color.White,
+                        color = markColor,
                         radius = thumbRadiusPx,
                         center = Offset(cx, cy)
                     )
                 } else {
                     drawCircle(
-                        color = Color.White,
+                        color = markColor,
                         radius = stopDotRadiusPx,
                         center = Offset(cx, cy)
                     )
@@ -781,7 +794,9 @@ private fun CaptionPrefsBottomSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            FiveStopCaptionSizeSlider(
+            DiscreteStopsSlider(
+                contentDescription = "Caption font size slider",
+
                 selectedIndex = selectedIndex,
                 stopCount = options.size,
                 onIndexSelected = { idx -> onSizeSelected(options[idx]) },
@@ -1035,305 +1050,344 @@ private fun SettingsBottomSheet(
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
                 text = "Settings",
                 style = MaterialTheme.typography.titleLarge,
                 color = YueCapColors.Paper,
-                modifier = Modifier.padding(bottom = 16.dp)
+                fontWeight = FontWeight.SemiBold
             )
 
-            // Former main-screen Setup: input mode + caption/translation controls.
-            AudioInputModeCard(
-                audioInputMode = audioInputMode,
-                systemCaptureReady = systemCaptureReady,
-                systemCaptureSupported = systemCaptureSupported,
-                onInputModeChange = onInputModeChange,
-                onRequestSystemCapture = onRequestSystemCapture
-            )
-
-            HomeLanguageSpeechCard(
-                translationEnabled = translationEnabled,
-                speakTranslatedAudio = speakTranslatedAudio,
-                translationSourceLanguageCode = translationSourceLanguageCode,
-                translationTargetLanguageCode = translationTargetLanguageCode,
-                ttsRate = ttsRate,
-                translationProvider = translationProvider,
-                isAndroidSystemTranslationAvailable = isAndroidSystemTranslationAvailable,
-                translationModelReady = translationModelReady,
-                translationDownloadStatus = translationDownloadStatus,
-                translatedConfirmedText = translatedConfirmedText,
-                translatedHypothesisText = translatedHypothesisText,
-                translationWarning = translationWarning,
-                onTranslationEnabledChange = onTranslationEnabledChange,
-                onSpeakTranslatedAudioChange = onSpeakTranslatedAudioChange,
-                onSourceLanguageChange = onSourceLanguageChange,
-                onTargetLanguageChange = onTargetLanguageChange,
-                onTtsRateChange = onTtsRateChange,
-                onTranslationProviderChange = onTranslationProviderChange
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-            Text(
-                text = "Spark A",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            OutlinedTextField(
-                value = asrUrl,
-                onValueChange = {
-                    asrEdited = true
-                    asrUrl = it
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                singleLine = true,
-                label = { Text("Base URL") },
-                placeholder = { Text("http://192.168.1.20:8000") }
-            )
-            Button(
-                onClick = { onTestSparkA(asrUrl.trim()) },
-                enabled = !sparkATesting,
-                modifier = Modifier.padding(top = 8.dp)
-            ) {
-                Text(if (sparkATesting) "Testing Spark A..." else "Test Spark A")
-            }
-            sparkATest?.let { result ->
-                Text(
-                    text = result.message,
-                    color = if (result.ok) Color(0xFF0E6655) else MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp)
+            SettingsSection(title = "Input") {
+                AudioInputModeContent(
+                    audioInputMode = audioInputMode,
+                    systemCaptureReady = systemCaptureReady,
+                    systemCaptureSupported = systemCaptureSupported,
+                    onInputModeChange = onInputModeChange,
+                    onRequestSystemCapture = onRequestSystemCapture
                 )
             }
 
-            Text(
-                text = "Spark B",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 16.dp)
-            )
-            OutlinedTextField(
-                value = sparkBUrl,
-                onValueChange = {
-                    sparkBEdited = true
-                    sparkBUrl = it
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                singleLine = true,
-                label = { Text("Base URL") },
-                placeholder = { Text("http://192.168.1.21:8000") }
-            )
-            OutlinedTextField(
-                value = modelName,
-                onValueChange = {
-                    modelEdited = true
-                    modelName = it
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                singleLine = true,
-                label = { Text("Model") },
-                placeholder = { Text("local") }
-            )
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = {
-                    apiKeyEdited = true
-                    apiKey = it
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                singleLine = true,
-                label = { Text("API key (optional)") },
-                visualTransformation = PasswordVisualTransformation()
-            )
-            Button(
-                onClick = { onTestSparkB(sparkBUrl.trim(), modelName.trim(), apiKey.trim()) },
-                enabled = !sparkBTesting,
-                modifier = Modifier.padding(top = 8.dp)
-            ) {
-                Text(if (sparkBTesting) "Testing Spark B..." else "Test Spark B")
-            }
-            sparkBTest?.let { result ->
-                Text(
-                    text = result.message,
-                    color = if (result.ok) Color(0xFF0E6655) else MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp)
+            SettingsSection(title = "Caption") {
+                CaptionSettingsContent(
+                    translationEnabled = translationEnabled,
+                    speakTranslatedAudio = speakTranslatedAudio,
+                    translationSourceLanguageCode = translationSourceLanguageCode,
+                    translationTargetLanguageCode = translationTargetLanguageCode,
+                    ttsRate = ttsRate,
+                    translationProvider = translationProvider,
+                    isAndroidSystemTranslationAvailable = isAndroidSystemTranslationAvailable,
+                    translationModelReady = translationModelReady,
+                    translationDownloadStatus = translationDownloadStatus,
+                    translatedConfirmedText = translatedConfirmedText,
+                    translatedHypothesisText = translatedHypothesisText,
+                    translationWarning = translationWarning,
+                    onTranslationEnabledChange = onTranslationEnabledChange,
+                    onSpeakTranslatedAudioChange = onSpeakTranslatedAudioChange,
+                    onSourceLanguageChange = onSourceLanguageChange,
+                    onTargetLanguageChange = onTargetLanguageChange,
+                    onTtsRateChange = onTtsRateChange,
+                    onTranslationProviderChange = onTranslationProviderChange
                 )
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-            // Actions
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onCopyText,
-                    enabled = fullText.isNotBlank(),
-                    modifier = Modifier
-                        .weight(1f)
-                        .semantics { contentDescription = "settings_copy_text" }
+            SettingsSection(title = "Spark A") {
+                OutlinedTextField(
+                    value = asrUrl,
+                    onValueChange = {
+                        asrEdited = true
+                        asrUrl = it
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Base URL") },
+                    placeholder = { Text("http://192.168.1.20:8000") }
+                )
+                Button(
+                    onClick = { onTestSparkA(asrUrl.trim()) },
+                    enabled = !sparkATesting,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Copy")
+                    Text(if (sparkATesting) "Testing Spark A..." else "Test Spark A")
                 }
-                OutlinedButton(
-                    onClick = onClearTranscription,
-                    enabled = fullText.isNotBlank(),
-                    modifier = Modifier
-                        .weight(1f)
-                        .semantics { contentDescription = "settings_clear_transcription" }
-                ) {
-                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Clear")
+                sparkATest?.let { result ->
+                    Text(
+                        text = result.message,
+                        color = if (result.ok) YueCapColors.Ok else MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-            // Current Model
-            Text(
-                text = "On-device model",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(selectedModel.displayName)
-                Text(
-                    selectedModel.parameterCount,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            SettingsSection(title = "Spark B") {
+                OutlinedTextField(
+                    value = sparkBUrl,
+                    onValueChange = {
+                        sparkBEdited = true
+                        sparkBUrl = it
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Base URL") },
+                    placeholder = { Text("http://192.168.1.21:8000") }
                 )
+                OutlinedTextField(
+                    value = modelName,
+                    onValueChange = {
+                        modelEdited = true
+                        modelName = it
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Model") },
+                    placeholder = { Text("local") }
+                )
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = {
+                        apiKeyEdited = true
+                        apiKey = it
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("API key (optional)") },
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                Button(
+                    onClick = { onTestSparkB(sparkBUrl.trim(), modelName.trim(), apiKey.trim()) },
+                    enabled = !sparkBTesting,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (sparkBTesting) "Testing Spark B..." else "Test Spark B")
+                }
+                sparkBTest?.let { result ->
+                    Text(
+                        text = result.message,
+                        color = if (result.ok) YueCapColors.Ok else MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            // Transcription Settings
-            Text(
-                text = "Listening",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Skip silence")
-                Switch(checked = useVAD, onCheckedChange = onVADChange)
+            SettingsSection(title = "Transcript") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onCopyText,
+                        enabled = fullText.isNotBlank(),
+                        modifier = Modifier
+                            .weight(1f)
+                            .semantics { contentDescription = "settings_copy_text" }
+                    ) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Copy")
+                    }
+                    OutlinedButton(
+                        onClick = onClearTranscription,
+                        enabled = fullText.isNotBlank(),
+                        modifier = Modifier
+                            .weight(1f)
+                            .semantics { contentDescription = "settings_clear_transcription" }
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Clear")
+                    }
+                }
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Timestamps")
-                Switch(checked = enableTimestamps, onCheckedChange = onTimestampsChange)
+            SettingsSection(title = "On-device model") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(selectedModel.displayName, color = YueCapColors.Paper)
+                    Text(
+                        selectedModel.parameterCount,
+                        color = YueCapColors.Mist
+                    )
+                }
+            }
+
+            SettingsSection(title = "Listening") {
+                SettingsSwitchRow(
+                    label = "Skip silence",
+                    checked = useVAD,
+                    onCheckedChange = onVADChange
+                )
+                SettingsSwitchRow(
+                    label = "Timestamps",
+                    checked = enableTimestamps,
+                    onCheckedChange = onTimestampsChange
+                )
             }
 
             AppVersionLabel(
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
-
-            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
 
 @Composable
-private fun AudioInputModeCard(
+private fun SettingsSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    GlassPanel(
+        modifier = Modifier.fillMaxWidth(),
+        corner = 18.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = YueCapColors.Paper,
+                fontWeight = FontWeight.SemiBold
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            color = if (enabled) YueCapColors.Paper else YueCapColors.Mist,
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled
+        )
+    }
+}
+
+@Composable
+private fun SettingsFilterChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    enabled: Boolean = true
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        enabled = enabled,
+        label = {
+            Text(
+                text = label,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip,
+                style = MaterialTheme.typography.labelLarge
+            )
+        },
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = YueCapColors.Panel,
+            labelColor = YueCapColors.Paper,
+            selectedContainerColor = YueCapColors.Paper.copy(alpha = 0.20f),
+            selectedLabelColor = YueCapColors.Paper,
+            disabledContainerColor = YueCapColors.Panel.copy(alpha = 0.45f),
+            disabledLabelColor = YueCapColors.Mist.copy(alpha = 0.7f)
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = enabled,
+            selected = selected,
+            borderColor = YueCapColors.Line,
+            selectedBorderColor = Color.White.copy(alpha = 0.28f),
+            disabledBorderColor = YueCapColors.Line.copy(alpha = 0.4f),
+            disabledSelectedBorderColor = YueCapColors.Line.copy(alpha = 0.4f)
+        )
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AudioInputModeContent(
     audioInputMode: AudioInputMode,
     systemCaptureReady: Boolean,
     systemCaptureSupported: Boolean,
     onInputModeChange: (AudioInputMode) -> Unit,
     onRequestSystemCapture: () -> Unit
 ) {
-    GlassPanel(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        corner = 18.dp
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(12.dp)
-    ) {
-        Text(
-            text = "Input",
-            style = MaterialTheme.typography.titleSmall,
-            color = YueCapColors.Paper
+        SettingsFilterChip(
+            selected = audioInputMode == AudioInputMode.MICROPHONE,
+            onClick = { onInputModeChange(AudioInputMode.MICROPHONE) },
+            label = "Microphone"
         )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterChip(
-                selected = audioInputMode == AudioInputMode.MICROPHONE,
-                onClick = { onInputModeChange(AudioInputMode.MICROPHONE) },
-                label = { Text("Microphone") }
-            )
-            FilterChip(
-                selected = audioInputMode == AudioInputMode.SYSTEM_PLAYBACK,
-                onClick = { onInputModeChange(AudioInputMode.SYSTEM_PLAYBACK) },
-                enabled = systemCaptureSupported,
-                label = { Text("System") }
-            )
-        }
-
-        if (audioInputMode == AudioInputMode.SYSTEM_PLAYBACK) {
-            val statusText = when {
-                !systemCaptureSupported -> "System capture requires Android 10+."
-                systemCaptureReady -> "System capture enabled. Other apps' media/game audio can be transcribed."
-                else -> "Enable system capture to transcribe playback audio from other apps."
-            }
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-
-            if (systemCaptureSupported && !systemCaptureReady) {
-                OutlinedButton(
-                    onClick = onRequestSystemCapture,
-                    modifier = Modifier.padding(top = 8.dp)
-                ) {
-                    Text("Enable System Capture")
-                }
-            }
-        }
+        SettingsFilterChip(
+            selected = audioInputMode == AudioInputMode.SYSTEM_PLAYBACK,
+            onClick = { onInputModeChange(AudioInputMode.SYSTEM_PLAYBACK) },
+            enabled = systemCaptureSupported,
+            label = "System"
+        )
     }
+
+    if (audioInputMode == AudioInputMode.SYSTEM_PLAYBACK) {
+        val statusText = when {
+            !systemCaptureSupported -> "System capture requires Android 10+."
+            systemCaptureReady -> "System capture enabled. Other apps' media/game audio can be transcribed."
+            else -> "Enable system capture to transcribe playback audio from other apps."
+        }
+        Text(
+            text = statusText,
+            style = MaterialTheme.typography.bodySmall,
+            color = YueCapColors.Mist
+        )
+
+        if (systemCaptureSupported && !systemCaptureReady) {
+            OutlinedButton(
+                onClick = onRequestSystemCapture,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Enable System Capture")
+            }
+        }
     }
 }
 
+private val readingSpeedStops = listOf(0.50f, 0.75f, 1.00f, 1.25f, 1.50f)
+private val readingSpeedLabels = listOf("Slow", "Steady", "Normal", "Fast", "Faster")
+
+private fun nearestReadingSpeedIndex(rate: Float): Int {
+    return readingSpeedStops.indices.minByOrNull { i ->
+        kotlin.math.abs(readingSpeedStops[i] - rate)
+    } ?: 2
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HomeLanguageSpeechCard(
+private fun CaptionSettingsContent(
     translationEnabled: Boolean,
     speakTranslatedAudio: Boolean,
     translationSourceLanguageCode: String,
@@ -1358,190 +1412,143 @@ private fun HomeLanguageSpeechCard(
             .filter { it.isNotEmpty() }
             .joinToString(" ")
     }
+    val speedIndex = nearestReadingSpeedIndex(ttsRate)
 
-    GlassPanel(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        corner = 18.dp
+    SettingsSwitchRow(
+        label = "Translate",
+        checked = translationEnabled,
+        onCheckedChange = onTranslationEnabledChange
+    )
+
+    SettingsSwitchRow(
+        label = "Read aloud",
+        checked = speakTranslatedAudio,
+        onCheckedChange = onSpeakTranslatedAudioChange,
+        enabled = translationEnabled
+    )
+
+    Text(
+        text = "Translator",
+        style = MaterialTheme.typography.bodyMedium,
+        color = YueCapColors.Mist
+    )
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(12.dp)
-    ) {
-        Text(
-            text = "Caption",
-            style = MaterialTheme.typography.titleSmall,
-            color = YueCapColors.Paper
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Translate")
-            Switch(
-                checked = translationEnabled,
-                onCheckedChange = onTranslationEnabledChange
+        TranslationProvider.entries.forEach { provider ->
+            val enabled = translationEnabled && (
+                provider != TranslationProvider.ANDROID_SYSTEM || isAndroidSystemTranslationAvailable
             )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Read aloud")
-            Switch(
-                checked = speakTranslatedAudio,
-                enabled = translationEnabled,
-                onCheckedChange = onSpeakTranslatedAudioChange
-            )
-        }
-
-        // Translation provider selector
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Translator", style = MaterialTheme.typography.bodyMedium)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TranslationProvider.entries.forEach { provider ->
-                    val enabled = translationEnabled && (
-                        provider != TranslationProvider.ANDROID_SYSTEM || isAndroidSystemTranslationAvailable
-                    )
-                    FilterChip(
-                        selected = translationProvider == provider,
-                        onClick = { if (enabled) onTranslationProviderChange(provider) },
-                        label = {
-                            Text(
-                                when (provider) {
-                                    TranslationProvider.REMOTE_SPARK_B -> "Spark B"
-                                    TranslationProvider.ML_KIT -> "ML Kit"
-                                    TranslationProvider.ANDROID_SYSTEM -> "System"
-                                },
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        },
-                        enabled = enabled,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-                }
+            val label = when (provider) {
+                TranslationProvider.REMOTE_SPARK_B -> "Spark B"
+                TranslationProvider.ML_KIT -> "ML Kit"
+                TranslationProvider.ANDROID_SYSTEM -> "System"
             }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(modifier = Modifier.weight(1f)) {
-                LanguageDropdownField(
-                    title = "From",
-                    selectedCode = translationSourceLanguageCode,
-                    enabled = translationEnabled,
-                    onLanguageSelected = onSourceLanguageChange
-                )
-            }
-            Box(modifier = Modifier.weight(1f)) {
-                LanguageDropdownField(
-                    title = "Into",
-                    selectedCode = translationTargetLanguageCode,
-                    enabled = false,
-                    onLanguageSelected = onTargetLanguageChange
-                )
-            }
-        }
-
-        // Translation model download status
-        if (translationEnabled) {
-            val statusText = translationDownloadStatus
-            if (!translationModelReady && statusText != null) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (statusText.startsWith("Downloading") || statusText.startsWith("Preparing")) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (statusText.contains("failed", ignoreCase = true))
-                            MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else if (!translationModelReady) {
-                Text(
-                    text = "Getting the translator ready...",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            } else {
-                Text(
-                    text = "Translator ready",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-        }
-
-        Text(
-            text = "Reading speed: ${String.format("%.2f", ttsRate)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        Slider(
-            value = ttsRate,
-            onValueChange = onTtsRateChange,
-            valueRange = 0.25f..2.0f,
-            enabled = translationEnabled && speakTranslatedAudio
-        )
-
-        Text(
-            text = "Spoken English",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = if (ttsText.isBlank()) "Nothing to read yet." else ttsText,
-            style = MaterialTheme.typography.bodySmall,
-            color = if (ttsText.isBlank()) {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-            maxLines = 3
-        )
-        if (translationWarning.isNotEmpty()) {
-            Text(
-                text = translationWarning,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(top = 6.dp)
+            SettingsFilterChip(
+                selected = translationProvider == provider,
+                onClick = { if (enabled) onTranslationProviderChange(provider) },
+                enabled = enabled,
+                label = label
             )
         }
     }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(modifier = Modifier.weight(1f)) {
+            LanguageDropdownField(
+                title = "From",
+                selectedCode = translationSourceLanguageCode,
+                enabled = translationEnabled,
+                onLanguageSelected = onSourceLanguageChange
+            )
+        }
+        Box(modifier = Modifier.weight(1f)) {
+            LanguageDropdownField(
+                title = "Into",
+                selectedCode = translationTargetLanguageCode,
+                enabled = false,
+                onLanguageSelected = onTargetLanguageChange
+            )
+        }
+    }
+
+    if (translationEnabled) {
+        val statusText = translationDownloadStatus
+        if (!translationModelReady && statusText != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (statusText.startsWith("Downloading") || statusText.startsWith("Preparing")) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (statusText.contains("failed", ignoreCase = true))
+                        MaterialTheme.colorScheme.error
+                    else YueCapColors.Mist
+                )
+            }
+        } else if (!translationModelReady) {
+            Text(
+                text = "Getting the translator ready...",
+                style = MaterialTheme.typography.bodySmall,
+                color = YueCapColors.Mist
+            )
+        } else {
+            Text(
+                text = "Translator ready",
+                style = MaterialTheme.typography.bodySmall,
+                color = YueCapColors.Ok
+            )
+        }
+    }
+
+    Text(
+        text = "Reading speed: ${readingSpeedLabels[speedIndex]} (${String.format("%.2f", readingSpeedStops[speedIndex])}×)",
+        style = MaterialTheme.typography.bodySmall,
+        color = YueCapColors.Mist
+    )
+    DiscreteStopsSlider(
+        selectedIndex = speedIndex,
+        stopCount = readingSpeedStops.size,
+        onIndexSelected = { idx -> onTtsRateChange(readingSpeedStops[idx]) },
+        enabled = translationEnabled && speakTranslatedAudio,
+        contentDescription = "Reading speed slider",
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    Text(
+        text = "Spoken English",
+        style = MaterialTheme.typography.labelMedium,
+        color = YueCapColors.Mist
+    )
+    Text(
+        text = if (ttsText.isBlank()) "Nothing to read yet." else ttsText,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (ttsText.isBlank()) {
+            YueCapColors.Mist.copy(alpha = 0.7f)
+        } else {
+            YueCapColors.Paper
+        },
+        maxLines = 3
+    )
+    if (translationWarning.isNotEmpty()) {
+        Text(
+            text = translationWarning,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error
+        )
     }
 }
 
