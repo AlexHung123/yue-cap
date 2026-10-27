@@ -107,7 +107,8 @@ class SherpaOnnxEngine : AsrEngine {
         val modelConfig = OfflineModelConfig(
             senseVoice = OfflineSenseVoiceModelConfig(
                 model = findFile(modelDir, "model"),
-                language = AppPreferences.DEFAULT_SOURCE_LANGUAGE,
+                // Force Cantonese; SenseVoice auto/ja mis-detects news/Cantonese as Japanese.
+                language = AppPreferences.DEFAULT_SOURCE_LANGUAGE, // "yue"
                 useInverseTextNormalization = true,
             ),
             tokens = tokensPath,

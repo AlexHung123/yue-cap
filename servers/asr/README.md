@@ -2,6 +2,8 @@
 
 HTTP ASR for YueCap: `POST /v1/asr?language=yue` with raw 16-bit PCM WAV body.
 
+SenseVoice language is **forced to `yue`** at recognizer load (not `auto`) so Cantonese is not mis-detected as Japanese.
+
 ## One-time setup
 
 ```bash

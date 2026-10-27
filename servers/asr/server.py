@@ -78,11 +78,13 @@ def ensure_model(model_dir: Path) -> tuple[Path, Path]:
 
 _model, _tokens = ensure_model(MODEL_DIR)
 print(f"[asr] Loading {_model}")
+# YueCap is Cantonese-first. Never use language="auto" — SenseVoice then
+# frequently mis-tags Cantonese as Japanese (ja) or Mandarin (zh).
 recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
     model=str(_model),
     tokens=str(_tokens),
     use_itn=True,
-    language="auto",
+    language="yue",
     num_threads=NUM_THREADS,
 )
 
@@ -121,15 +123,18 @@ async def asr(
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": f"invalid wav: {exc}"}, status_code=400)
 
-    lang = (language or "yue").strip().lower()
-    if lang not in ALLOWED_LANG:
-        lang = "yue"
+    # Product path: always force Cantonese ASR regardless of query / client.
+    # Query param is accepted for API compatibility but cannot drift to ja/auto.
+    requested = (language or "yue").strip().lower()
+    if requested not in ALLOWED_LANG:
+        requested = "yue"
+    lang = "yue"
 
     stream = recognizer.create_stream()
     stream.accept_waveform(sample_rate, samples)
     recognizer.decode_stream(stream)
     text = (stream.result.text or "").strip()
-    return JSONResponse({"text": text, "lang": lang})
+    return JSONResponse({"text": text, "lang": lang, "requested_lang": requested})
 
 
 if __name__ == "__main__":

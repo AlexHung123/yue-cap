@@ -40,13 +40,15 @@ class RemoteAsrClient(
 
     override fun release() = Unit
 
+    @Suppress("UNUSED_PARAMETER")
     override suspend fun transcribe(
         audioSamples: FloatArray,
         numThreads: Int,
         language: String
     ): List<TranscriptionSegment> = withContext(Dispatchers.IO) {
         if (audioSamples.isEmpty()) return@withContext emptyList()
-        val lang = language.trim().ifEmpty { AppPreferences.DEFAULT_SOURCE_LANGUAGE }
+        // Always force SenseVoice language=yue (ignore caller / UI drift to ja/auto).
+        val lang = AppPreferences.DEFAULT_SOURCE_LANGUAGE
         val url = sparkAsrUrl(baseUrl, lang)
             ?: throw IOException("Spark A URL is not set")
         val wav = WavWriter.toByteArray(audioSamples, AudioConstants.SAMPLE_RATE)
@@ -87,10 +89,12 @@ class RemoteAsrClient(
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 internal fun sparkAsrUrl(baseUrl: String, language: String): String? {
     val parsed = baseUrl.trim().toHttpUrlOrNull() ?: return null
     if (parsed.scheme != "http" && parsed.scheme != "https") return null
-    val lang = language.trim().lowercase().ifEmpty { AppPreferences.DEFAULT_SOURCE_LANGUAGE }
+    // YueCap SenseVoice path is always Cantonese; never pass ja/auto/zh from UI.
+    val lang = AppPreferences.DEFAULT_SOURCE_LANGUAGE
     val path = parsed.encodedPath.removeSuffix("/")
     val builder = parsed.newBuilder()
     if (!path.endsWith("/v1/asr")) {
