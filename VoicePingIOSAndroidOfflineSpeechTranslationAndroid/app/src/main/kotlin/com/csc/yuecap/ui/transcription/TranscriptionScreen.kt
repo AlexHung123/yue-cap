@@ -55,7 +55,6 @@ import com.csc.yuecap.BuildConfig
 import com.csc.yuecap.model.AudioInputMode
 import com.csc.yuecap.model.ModelInfo
 import com.csc.yuecap.model.ModelState
-import com.csc.yuecap.model.TranslationProvider
 import com.csc.yuecap.service.E2ETestResult
 import com.csc.yuecap.ui.components.AppVersionLabel
 import com.csc.yuecap.ui.components.AudioVisualizer
@@ -170,12 +169,9 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
     val systemAudioCaptureReady by viewModel.systemAudioCaptureReady.collectAsState()
     val translationEnabled by viewModel.translationEnabled.collectAsState()
     val cantonesePolishEnabled by viewModel.cantonesePolishEnabled.collectAsState()
-    val speakTranslatedAudio by viewModel.speakTranslatedAudio.collectAsState()
     val translationSourceLanguageCode by viewModel.translationSourceLanguageCode.collectAsState()
     val translationTargetLanguageCode by viewModel.translationTargetLanguageCode.collectAsState()
-    val ttsRate by viewModel.ttsRate.collectAsState()
     val captionFontSizeSp by viewModel.captionFontSizeSp.collectAsState()
-    val translationProviderState by viewModel.translationProvider.collectAsState()
     val translatedConfirmedText by viewModel.translatedConfirmedText.collectAsState()
     val translatedHypothesisText by viewModel.translatedHypothesisText.collectAsState()
     val translationWarning by viewModel.translationWarning.collectAsState()
@@ -404,24 +400,15 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
             onRequestSystemCapture = { requestSystemAudioCapture() },
             translationEnabled = translationEnabled,
             cantonesePolishEnabled = cantonesePolishEnabled,
-            speakTranslatedAudio = speakTranslatedAudio,
             translationSourceLanguageCode = translationSourceLanguageCode,
             translationTargetLanguageCode = translationTargetLanguageCode,
-            ttsRate = ttsRate,
-            translationProvider = translationProviderState,
-            isAndroidSystemTranslationAvailable = viewModel.isAndroidSystemTranslationAvailable,
             translationModelReady = translationModelReady,
             translationDownloadStatus = translationDownloadStatus,
-            translatedConfirmedText = displayTranslatedConfirmedText,
-            translatedHypothesisText = displayTranslatedHypothesisText,
             translationWarning = displayTranslationWarning,
             onTranslationEnabledChange = { viewModel.setTranslationEnabled(it) },
             onCantonesePolishEnabledChange = { viewModel.setCantonesePolishEnabled(it) },
-            onSpeakTranslatedAudioChange = { viewModel.setSpeakTranslatedAudio(it) },
             onSourceLanguageChange = { viewModel.setTranslationSourceLanguageCode(it) },
             onTargetLanguageChange = { viewModel.setTranslationTargetLanguageCode(it) },
-            onTtsRateChange = { viewModel.setTtsRate(it) },
-            onTranslationProviderChange = { viewModel.setTranslationProvider(it) },
             onCopyText = { clipboardManager.setText(AnnotatedString(viewModel.fullText)) },
             onClearTranscription = { viewModel.clearTranscription() },
             onVADChange = { viewModel.setUseVAD(it) },
@@ -1074,24 +1061,15 @@ private fun SettingsBottomSheet(
     onRequestSystemCapture: () -> Unit,
     translationEnabled: Boolean,
     cantonesePolishEnabled: Boolean,
-    speakTranslatedAudio: Boolean,
     translationSourceLanguageCode: String,
     translationTargetLanguageCode: String,
-    ttsRate: Float,
-    translationProvider: TranslationProvider,
-    isAndroidSystemTranslationAvailable: Boolean,
     translationModelReady: Boolean,
     translationDownloadStatus: String?,
-    translatedConfirmedText: String,
-    translatedHypothesisText: String,
     translationWarning: String,
     onTranslationEnabledChange: (Boolean) -> Unit,
     onCantonesePolishEnabledChange: (Boolean) -> Unit,
-    onSpeakTranslatedAudioChange: (Boolean) -> Unit,
     onSourceLanguageChange: (String) -> Unit,
     onTargetLanguageChange: (String) -> Unit,
-    onTtsRateChange: (Float) -> Unit,
-    onTranslationProviderChange: (TranslationProvider) -> Unit,
     onCopyText: () -> Unit,
     onClearTranscription: () -> Unit,
     onVADChange: (Boolean) -> Unit,
@@ -1154,24 +1132,15 @@ private fun SettingsBottomSheet(
                 CaptionSettingsContent(
                     translationEnabled = translationEnabled,
                     cantonesePolishEnabled = cantonesePolishEnabled,
-                    speakTranslatedAudio = speakTranslatedAudio,
                     translationSourceLanguageCode = translationSourceLanguageCode,
                     translationTargetLanguageCode = translationTargetLanguageCode,
-                    ttsRate = ttsRate,
-                    translationProvider = translationProvider,
-                    isAndroidSystemTranslationAvailable = isAndroidSystemTranslationAvailable,
                     translationModelReady = translationModelReady,
                     translationDownloadStatus = translationDownloadStatus,
-                    translatedConfirmedText = translatedConfirmedText,
-                    translatedHypothesisText = translatedHypothesisText,
                     translationWarning = translationWarning,
                     onTranslationEnabledChange = onTranslationEnabledChange,
                     onCantonesePolishEnabledChange = onCantonesePolishEnabledChange,
-                    onSpeakTranslatedAudioChange = onSpeakTranslatedAudioChange,
                     onSourceLanguageChange = onSourceLanguageChange,
-                    onTargetLanguageChange = onTargetLanguageChange,
-                    onTtsRateChange = onTtsRateChange,
-                    onTranslationProviderChange = onTranslationProviderChange
+                    onTargetLanguageChange = onTargetLanguageChange
                 )
             }
 
@@ -1471,46 +1440,20 @@ private fun AudioInputModeContent(
     }
 }
 
-private val readingSpeedStops = listOf(0.50f, 0.75f, 1.00f, 1.25f, 1.50f)
-private val readingSpeedLabels = listOf("Slow", "Steady", "Normal", "Fast", "Faster")
-
-private fun nearestReadingSpeedIndex(rate: Float): Int {
-    return readingSpeedStops.indices.minByOrNull { i ->
-        kotlin.math.abs(readingSpeedStops[i] - rate)
-    } ?: 2
-}
-
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CaptionSettingsContent(
     translationEnabled: Boolean,
     cantonesePolishEnabled: Boolean,
-    speakTranslatedAudio: Boolean,
     translationSourceLanguageCode: String,
     translationTargetLanguageCode: String,
-    ttsRate: Float,
-    translationProvider: TranslationProvider,
-    isAndroidSystemTranslationAvailable: Boolean,
     translationModelReady: Boolean,
     translationDownloadStatus: String?,
-    translatedConfirmedText: String,
-    translatedHypothesisText: String,
     translationWarning: String,
     onTranslationEnabledChange: (Boolean) -> Unit,
     onCantonesePolishEnabledChange: (Boolean) -> Unit,
-    onSpeakTranslatedAudioChange: (Boolean) -> Unit,
     onSourceLanguageChange: (String) -> Unit,
-    onTargetLanguageChange: (String) -> Unit,
-    onTtsRateChange: (Float) -> Unit,
-    onTranslationProviderChange: (TranslationProvider) -> Unit
+    onTargetLanguageChange: (String) -> Unit
 ) {
-    val ttsText = remember(translatedConfirmedText, translatedHypothesisText) {
-        listOf(translatedConfirmedText.trim(), translatedHypothesisText.trim())
-            .filter { it.isNotEmpty() }
-            .joinToString(" ")
-    }
-    val speedIndex = nearestReadingSpeedIndex(ttsRate)
-
     SettingsSwitchRow(
         label = "Translate",
         checked = translationEnabled,
@@ -1521,44 +1464,9 @@ private fun CaptionSettingsContent(
         label = "Light polish Cantonese",
         checked = cantonesePolishEnabled,
         onCheckedChange = onCantonesePolishEnabledChange,
-        enabled = translationEnabled && translationProvider == TranslationProvider.REMOTE_SPARK_B,
+        enabled = translationEnabled,
         subtitle = "Uses Spark B LLM · fixes ASR only, keeps 口語"
     )
-
-    SettingsSwitchRow(
-        label = "Read aloud",
-        checked = speakTranslatedAudio,
-        onCheckedChange = onSpeakTranslatedAudioChange,
-        enabled = translationEnabled
-    )
-
-    Text(
-        text = "Translator",
-        style = MaterialTheme.typography.bodyMedium,
-        color = YueCapColors.Mist
-    )
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        TranslationProvider.entries.forEach { provider ->
-            val enabled = translationEnabled && (
-                provider != TranslationProvider.ANDROID_SYSTEM || isAndroidSystemTranslationAvailable
-            )
-            val label = when (provider) {
-                TranslationProvider.REMOTE_SPARK_B -> "Spark B"
-                TranslationProvider.ML_KIT -> "ML Kit"
-                TranslationProvider.ANDROID_SYSTEM -> "System"
-            }
-            SettingsFilterChip(
-                selected = translationProvider == provider,
-                onClick = { if (enabled) onTranslationProviderChange(provider) },
-                enabled = enabled,
-                label = label
-            )
-        }
-    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1606,48 +1514,19 @@ private fun CaptionSettingsContent(
             }
         } else if (!translationModelReady) {
             Text(
-                text = "Getting the translator ready...",
+                text = "Getting Spark B ready...",
                 style = MaterialTheme.typography.bodySmall,
                 color = YueCapColors.Mist
             )
         } else {
             Text(
-                text = "Translator ready",
+                text = "Spark B ready",
                 style = MaterialTheme.typography.bodySmall,
                 color = YueCapColors.Ok
             )
         }
     }
 
-    Text(
-        text = "Reading speed: ${readingSpeedLabels[speedIndex]} (${String.format("%.2f", readingSpeedStops[speedIndex])}×)",
-        style = MaterialTheme.typography.bodySmall,
-        color = YueCapColors.Mist
-    )
-    DiscreteStopsSlider(
-        selectedIndex = speedIndex,
-        stopCount = readingSpeedStops.size,
-        onIndexSelected = { idx -> onTtsRateChange(readingSpeedStops[idx]) },
-        enabled = translationEnabled && speakTranslatedAudio,
-        contentDescription = "Reading speed slider",
-        modifier = Modifier.fillMaxWidth()
-    )
-
-    Text(
-        text = "Spoken English",
-        style = MaterialTheme.typography.labelMedium,
-        color = YueCapColors.Mist
-    )
-    Text(
-        text = if (ttsText.isBlank()) "Nothing to read yet." else ttsText,
-        style = MaterialTheme.typography.bodySmall,
-        color = if (ttsText.isBlank()) {
-            YueCapColors.Mist.copy(alpha = 0.7f)
-        } else {
-            YueCapColors.Paper
-        },
-        maxLines = 3
-    )
     if (translationWarning.isNotEmpty()) {
         Text(
             text = translationWarning,

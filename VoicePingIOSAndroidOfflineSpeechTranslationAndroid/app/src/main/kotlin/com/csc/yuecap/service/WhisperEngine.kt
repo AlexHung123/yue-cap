@@ -426,18 +426,24 @@ class WhisperEngine(
             }
         }
         scope.launch {
-            preferences.translationProvider.collect { providerName ->
-                val provider = try {
-                    TranslationProvider.valueOf(providerName)
-                } catch (_: IllegalArgumentException) {
-                    TranslationProvider.REMOTE_SPARK_B
-                }
+            // Hard-wire Spark B; ignore any stale ML Kit / System prefs.
+            preferences.translationProvider.collect { _ ->
+                val provider = TranslationProvider.REMOTE_SPARK_B
                 if (provider != _translationProvider.value) {
                     _translationProvider.value = provider
                     lastTranslationInput = null
                     scheduleTranslationUpdate()
+                } else if (_translationProvider.value != TranslationProvider.REMOTE_SPARK_B) {
+                    _translationProvider.value = TranslationProvider.REMOTE_SPARK_B
                 }
             }
+        }
+        scope.launch {
+            // One-shot migrate stale provider + TTS prefs off the old Settings options.
+            preferences.setTranslationProvider(TranslationProvider.REMOTE_SPARK_B.name)
+            preferences.setSpeakTranslatedAudio(false)
+            _translationProvider.value = TranslationProvider.REMOTE_SPARK_B
+            _speakTranslatedAudio.value = false
         }
         scope.launch(Dispatchers.Default) {
             while (true) {
@@ -680,12 +686,11 @@ class WhisperEngine(
     }
 
     suspend fun setSpeakTranslatedAudio(enabled: Boolean) {
-        _speakTranslatedAudio.value = enabled
-        preferences.setSpeakTranslatedAudio(enabled)
-        if (!enabled) {
-            ttsService.stop()
-            lastSpokenTranslatedConfirmed = ""
-        }
+        // Read aloud removed from Settings — always keep TTS off.
+        _speakTranslatedAudio.value = false
+        preferences.setSpeakTranslatedAudio(false)
+        ttsService.stop()
+        lastSpokenTranslatedConfirmed = ""
     }
 
     suspend fun setTranslationSourceLanguageCode(languageCode: String) {
@@ -792,8 +797,14 @@ class WhisperEngine(
     }
 
     suspend fun setTranslationProvider(provider: TranslationProvider) {
-        _translationProvider.value = provider
-        preferences.setTranslationProvider(provider.name)
+        // Translator picker removed — always Spark B.
+        val forced = TranslationProvider.REMOTE_SPARK_B
+        if (_translationProvider.value == forced) {
+            preferences.setTranslationProvider(forced.name)
+            return
+        }
+        _translationProvider.value = forced
+        preferences.setTranslationProvider(forced.name)
         lastTranslationInput = null
         resetTranslationState(stopTts = true)
         prepareTranslationModel()
@@ -1531,21 +1542,20 @@ class WhisperEngine(
         }
     }
 
-    /** Dispatch translation to the currently selected provider. */
+    /** Always Spark B (REMOTE_SPARK_B). ML Kit / System paths kept in codebase but unused. */
     private suspend fun translateWithProvider(
         text: String,
         sourceLanguageCode: String,
         targetLanguageCode: String
     ): String {
-        return when (_translationProvider.value) {
-            TranslationProvider.REMOTE_SPARK_B -> remoteLlmTranslator.translate(
-                text,
-                sourceLanguageCode,
-                targetLanguageCode
-            )
-            TranslationProvider.ML_KIT -> mlKitTranslator.translate(text, sourceLanguageCode, targetLanguageCode)
-            TranslationProvider.ANDROID_SYSTEM -> androidSystemTranslator.translate(text, sourceLanguageCode, targetLanguageCode)
+        if (_translationProvider.value != TranslationProvider.REMOTE_SPARK_B) {
+            _translationProvider.value = TranslationProvider.REMOTE_SPARK_B
         }
+        return remoteLlmTranslator.translate(
+            text,
+            sourceLanguageCode,
+            targetLanguageCode
+        )
     }
 
     /**

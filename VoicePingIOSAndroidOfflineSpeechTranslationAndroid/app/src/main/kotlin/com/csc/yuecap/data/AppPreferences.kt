@@ -69,7 +69,8 @@ class AppPreferences(private val context: Context) {
     val useVAD: Flow<Boolean> = preferenceFlow { it[USE_VAD] ?: true }
     val enableTimestamps: Flow<Boolean> = preferenceFlow { it[ENABLE_TIMESTAMPS] ?: true }
     val translationEnabled: Flow<Boolean> = preferenceFlow { it[TRANSLATION_ENABLED] ?: true }
-    val speakTranslatedAudio: Flow<Boolean> = preferenceFlow { it[SPEAK_TRANSLATED_AUDIO] ?: false }
+    /** TTS / Read aloud removed from Settings; always off. */
+    val speakTranslatedAudio: Flow<Boolean> = preferenceFlow { false }
     val translationSourceLanguage: Flow<String> = preferenceFlow {
         it[TRANSLATION_SOURCE_LANGUAGE] ?: DEFAULT_SOURCE_LANGUAGE
     }
@@ -80,8 +81,9 @@ class AppPreferences(private val context: Context) {
     val captionFontSizeSp: Flow<Int> = preferenceFlow { prefs ->
         normalizeCaptionFontSizeSp(prefs[CAPTION_FONT_SIZE_SP]?.toIntOrNull())
     }
+    /** Always Spark B — ML Kit / System no longer selectable. */
     val translationProvider: Flow<String> = preferenceFlow {
-        it[TRANSLATION_PROVIDER] ?: TranslationProvider.REMOTE_SPARK_B.name
+        TranslationProvider.REMOTE_SPARK_B.name
     }
     /** Spark A origin, for example `http://192.168.1.20:8000`. Empty until set. */
     val asrBaseUrl: Flow<String> = preferenceFlow { it[ASR_BASE_URL]?.trim().orEmpty() }
@@ -115,8 +117,9 @@ class AppPreferences(private val context: Context) {
         context.dataStore.edit { it[TRANSLATION_ENABLED] = enabled }
     }
 
-    suspend fun setSpeakTranslatedAudio(enabled: Boolean) {
-        context.dataStore.edit { it[SPEAK_TRANSLATED_AUDIO] = enabled }
+    suspend fun setSpeakTranslatedAudio(@Suppress("UNUSED_PARAMETER") enabled: Boolean) {
+        // Read aloud UI removed; keep preference forced off so TTS never runs.
+        context.dataStore.edit { it[SPEAK_TRANSLATED_AUDIO] = false }
     }
 
     suspend fun setTranslationSourceLanguage(languageCode: String) {
@@ -142,11 +145,9 @@ class AppPreferences(private val context: Context) {
         context.dataStore.edit { it[CAPTION_FONT_SIZE_SP] = normalized.toString() }
     }
 
-    suspend fun setTranslationProvider(provider: String) {
-        val normalized = provider.trim().uppercase(Locale.ROOT).ifEmpty {
-            TranslationProvider.REMOTE_SPARK_B.name
-        }
-        context.dataStore.edit { it[TRANSLATION_PROVIDER] = normalized }
+    suspend fun setTranslationProvider(@Suppress("UNUSED_PARAMETER") provider: String) {
+        // Hard-wired: ignore requested provider and always persist Spark B.
+        context.dataStore.edit { it[TRANSLATION_PROVIDER] = TranslationProvider.REMOTE_SPARK_B.name }
     }
 
     suspend fun setAsrBaseUrl(url: String) {
