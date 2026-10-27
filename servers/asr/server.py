@@ -14,7 +14,10 @@ import uvicorn
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import JSONResponse
 
-MODEL_NAME = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+# Cantonese fine-tune of SenseVoice Small (WenetSpeech-Yue, ~21.8k hours).
+# This process runs on the Spark A M3 Ultra, not on the dev machine.
+# The checkpoint does not emit punctuation; Spark B adds it when polishing.
+MODEL_NAME = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
 MODEL_URL = (
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
     f"{MODEL_NAME}.tar.bz2"
@@ -107,7 +110,7 @@ def wav_bytes_to_float32(data: bytes) -> tuple[np.ndarray, int]:
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "model": "sensevoice-small-int8"}
+    return {"ok": True, "model": MODEL_NAME, "language": "yue"}
 
 
 @app.post("/v1/asr")

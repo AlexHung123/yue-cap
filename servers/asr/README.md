@@ -12,8 +12,10 @@ uv venv --python 3.11 .venv   # or: python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt   # or: uv pip install -r requirements.txt
 
-# Model weights are NOT in git. First `python server.py` auto-downloads
-# sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17 (~200MB+) into models/.
+# Run this on the Spark A M3 Ultra, not the dev machine.
+# Model weights are NOT in git. First `python server.py` on that Mac
+# auto-downloads sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09
+# (Cantonese fine-tune, ~226MB, no punctuation) into models/.
 ```
 
 ## Run

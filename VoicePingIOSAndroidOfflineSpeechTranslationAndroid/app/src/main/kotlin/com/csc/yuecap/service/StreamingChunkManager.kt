@@ -166,6 +166,27 @@ class StreamingChunkManager(
     }
 
     /**
+     * Move the window cursor forward without committing hypothesis text.
+     * Used to skip silence and sub-threshold blips before an utterance opens.
+     */
+    fun advanceCursor(endMs: Long) {
+        if (endMs > lastConfirmedSegmentEndMs) {
+            lastConfirmedSegmentEndMs = endMs
+        }
+    }
+
+    /**
+     * Commit the open hypothesis as a finished utterance and move the cursor
+     * to [endMs]. Audio after that belongs to the next utterance.
+     */
+    fun commitUtterance(endMs: Long) {
+        finalizeCurrentChunk()
+        if (endMs > lastConfirmedSegmentEndMs) {
+            lastConfirmedSegmentEndMs = endMs
+        }
+    }
+
+    /**
      * Finalize the trailing audio after recording stops.
      * Processes the final transcription segments with their offset.
      */

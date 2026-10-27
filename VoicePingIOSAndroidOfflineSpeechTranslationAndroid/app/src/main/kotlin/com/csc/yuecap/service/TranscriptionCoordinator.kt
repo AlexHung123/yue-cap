@@ -31,6 +31,9 @@ class TranscriptionCoordinator(
     private var hasCompletedFirstInference: Boolean = false
     private var realtimeInferenceCount: Long = 0
     private var movingAverageInferenceSeconds: Double = 0.0
+    private val utteranceSegmenter = UtteranceSegmenter()
+    /** Absolute sample index of the last hypothesis decode, so live updates stay ~0.7s apart. */
+    private var lastHypothesisEndSample: Int = 0
 
     // MARK: - Constants
 
@@ -113,18 +116,22 @@ class TranscriptionCoordinator(
             if (asrEngine.isLoaded) {
                 try {
                     withContext(NonCancellable) {
-                        val currentCount = engine.audioRecorder.sampleCount
-                        if (currentCount > lastBufferSize) {
-                            val slice = engine.chunkManager.computeSlice(currentCount)
-                            if (slice != null) {
-                                val audioSamples = engine.audioRecorder.samplesRange(slice.startSample, slice.endSample)
-                                if (audioSamples.isNotEmpty()) {
-                                    val segments = transcribeSlice(asrEngine, audioSamples)
-                                    if (segments.isNotEmpty()) {
-                                        engine.chunkManager.finalizeTrailing(segments, slice.sliceOffsetMs)
-                                        val lang = WhisperEngine.normalizeLanguageCode(segments.firstOrNull()?.detectedLanguage)
-                                        if (lang != null) engine.updateDetectedLanguage(lang)
-                                        Log.i("TranscriptionCoordinator", "realtimeLoop final pass: ${segments.size} segments, text='${engine.chunkManager.confirmedText.takeLast(60)}'")
+                        if (useUtteranceEndpoint()) {
+                            flushUtterance(asrEngine)
+                        } else {
+                            val currentCount = engine.audioRecorder.sampleCount
+                            if (currentCount > lastBufferSize) {
+                                val slice = engine.chunkManager.computeSlice(currentCount)
+                                if (slice != null) {
+                                    val audioSamples = engine.audioRecorder.samplesRange(slice.startSample, slice.endSample)
+                                    if (audioSamples.isNotEmpty()) {
+                                        val segments = transcribeSlice(asrEngine, audioSamples)
+                                        if (segments.isNotEmpty()) {
+                                            engine.chunkManager.finalizeTrailing(segments, slice.sliceOffsetMs)
+                                            val lang = WhisperEngine.normalizeLanguageCode(segments.firstOrNull()?.detectedLanguage)
+                                            if (lang != null) engine.updateDetectedLanguage(lang)
+                                            Log.i("TranscriptionCoordinator", "realtimeLoop final pass: ${segments.size} segments, text='${engine.chunkManager.confirmedText.takeLast(60)}'")
+                                        }
                                     }
                                 }
                             }
@@ -224,6 +231,11 @@ class TranscriptionCoordinator(
         val nextBufferSize = currentBufferSize - lastBufferSize
         val nextBufferSeconds = nextBufferSize.toFloat() / AudioRecorder.SAMPLE_RATE
         val bufferSeconds = currentBufferSize.toFloat() / AudioRecorder.SAMPLE_RATE
+
+        if (useUtteranceEndpoint()) {
+            transcribeUtterance(asrEngine, sessionToken, currentBufferSize, bufferSeconds)
+            return
+        }
 
         val initialPhase = !hasCompletedFirstInference
         val baseDelay = if (initialPhase) {
@@ -387,6 +399,190 @@ class TranscriptionCoordinator(
         trimRecorderBufferIfNeeded(safeTrimSample)
     }
 
+    // MARK: - Utterance endpointing
+
+    private fun useUtteranceEndpoint(): Boolean {
+        return engine.useVAD.value && engine.audioInputMode.value != AudioInputMode.SYSTEM_PLAYBACK
+    }
+
+    /**
+     * Send one SenseVoice utterance: a pause of ~500ms ends it, clips under
+     * ~0.8s are dropped, and 5s of uninterrupted speech is the cap.
+     */
+    private suspend fun transcribeUtterance(
+        asrEngine: AsrEngine,
+        sessionToken: Long,
+        currentBufferSize: Int,
+        bufferSeconds: Float,
+    ) {
+        engine.updateBufferEnergy(engine.audioRecorder.relativeEnergy)
+        engine.updateBufferSeconds(engine.audioRecorder.bufferSeconds)
+
+        val cursor = cursorSample()
+        if (currentBufferSize - cursor < AudioRecorder.SAMPLE_RATE / 10) {
+            delay(100)
+            return
+        }
+
+        val decision = decideUtterance(cursor, currentBufferSize, flush = false)
+        when (decision.action) {
+            UtteranceDecision.Action.Wait -> {
+                delay(100)
+                return
+            }
+            UtteranceDecision.Action.AdvanceSilence,
+            UtteranceDecision.Action.SkipShort -> {
+                engine.chunkManager.advanceCursor(samplesToMs(decision.nextCursorSample))
+                lastBufferSize = currentBufferSize
+                trimRecorderBufferIfNeeded(decision.nextCursorSample)
+                delay(100)
+                return
+            }
+            UtteranceDecision.Action.Hypothesis -> {
+                if (decision.nextCursorSample > cursor) {
+                    engine.chunkManager.advanceCursor(samplesToMs(decision.nextCursorSample))
+                }
+                val newSamples = currentBufferSize - lastHypothesisEndSample
+                val minNew = (AudioRecorder.SAMPLE_RATE * MIN_NEW_AUDIO_SECONDS).toInt()
+                if (newSamples < minNew) {
+                    delay(100)
+                    return
+                }
+                if (!decodeUtterance(asrEngine, sessionToken, decision, bufferSeconds, commit = false)) {
+                    return
+                }
+                lastHypothesisEndSample = currentBufferSize
+            }
+            UtteranceDecision.Action.Endpoint,
+            UtteranceDecision.Action.ForceCut -> {
+                if (!decodeUtterance(asrEngine, sessionToken, decision, bufferSeconds, commit = true)) {
+                    return
+                }
+                lastHypothesisEndSample = decision.nextCursorSample
+            }
+        }
+    }
+
+    private suspend fun flushUtterance(asrEngine: AsrEngine) {
+        val currentCount = engine.audioRecorder.sampleCount
+        val cursor = cursorSample()
+        if (currentCount <= cursor) return
+        val decision = decideUtterance(cursor, currentCount, flush = true)
+        if (decision.action != UtteranceDecision.Action.Endpoint &&
+            decision.action != UtteranceDecision.Action.ForceCut &&
+            decision.action != UtteranceDecision.Action.Hypothesis
+        ) {
+            return
+        }
+        val audioSamples = engine.audioRecorder.samplesRange(
+            decision.sliceStartSample,
+            decision.sliceEndSample
+        )
+        if (audioSamples.isEmpty()) return
+        val segments = transcribeSlice(asrEngine, audioSamples)
+        if (segments.isNotEmpty()) {
+            // Offset stays 0 so SenseVoice's 0/0 timestamp segment remains a hypothesis
+            // until commitUtterance folds it in. A non-zero offset would confirm it early.
+            engine.chunkManager.processTranscriptionResult(segments, 0)
+            val lang = WhisperEngine.normalizeLanguageCode(segments.firstOrNull()?.detectedLanguage)
+            if (lang != null) engine.updateDetectedLanguage(lang)
+        }
+        engine.chunkManager.commitUtterance(samplesToMs(decision.nextCursorSample))
+        Log.i(
+            "TranscriptionCoordinator",
+            "utterance flush: action=${decision.action} text='${engine.chunkManager.confirmedText.takeLast(60)}'"
+        )
+    }
+
+    private fun decideUtterance(
+        cursor: Int,
+        bufferEnd: Int,
+        flush: Boolean,
+    ): UtteranceDecision {
+        val samples = engine.audioRecorder.samplesRange(cursor, bufferEnd)
+        return utteranceSegmenter.decide(
+            cursorSample = cursor,
+            bufferEndSample = bufferEnd,
+            samples = samples,
+            samplesOrigin = cursor,
+            flush = flush,
+        )
+    }
+
+    private suspend fun decodeUtterance(
+        asrEngine: AsrEngine,
+        sessionToken: Long,
+        decision: UtteranceDecision,
+        bufferSeconds: Float,
+        commit: Boolean,
+    ): Boolean {
+        val audioSamples = engine.audioRecorder.samplesRange(
+            decision.sliceStartSample,
+            decision.sliceEndSample
+        )
+        if (audioSamples.isEmpty()) return false
+        if (!inferenceMutex.tryLock()) {
+            delay(50)
+            return false
+        }
+        val startTime = System.nanoTime()
+        val newSegments = try {
+            transcribeSlice(asrEngine, audioSamples)
+        } finally {
+            inferenceMutex.unlock()
+        }
+        if (!engine.isSessionActive(sessionToken)) return false
+
+        realtimeInferenceCount += 1
+        hasCompletedFirstInference = true
+        val elapsed = (System.nanoTime() - startTime) / 1_000_000_000.0
+        if (elapsed > 0.0) {
+            movingAverageInferenceSeconds = if (movingAverageInferenceSeconds <= 0.0) {
+                elapsed
+            } else {
+                movingAverageInferenceSeconds + INFERENCE_EMA_ALPHA * (elapsed - movingAverageInferenceSeconds)
+            }
+        }
+        if (newSegments.isNotEmpty()) {
+            val lang = WhisperEngine.normalizeLanguageCode(newSegments.firstOrNull()?.detectedLanguage)
+            if (lang != null && lang != engine.detectedLanguage.value) {
+                engine.updateDetectedLanguage(lang)
+                engine.applyDetectedLanguageToTranslation(lang)
+            }
+            val totalWords = newSegments.sumOf { it.text.split(" ").size }
+            if (elapsed > 0 && totalWords > 0) {
+                engine.updateTokensPerSecond(totalWords / elapsed)
+            }
+        }
+        if (newSegments.isNotEmpty()) {
+            engine.chunkManager.processTranscriptionResult(newSegments, 0)
+        }
+        if (commit) {
+            engine.chunkManager.commitUtterance(samplesToMs(decision.nextCursorSample))
+        }
+        engine.updateConfirmedText(engine.chunkManager.confirmedText)
+        engine.updateHypothesisText(engine.chunkManager.hypothesisText)
+        engine.scheduleTranslationUpdate()
+        lastBufferSize = engine.audioRecorder.sampleCount
+        val preview = newSegments.firstOrNull()?.text?.let { normalizeDisplayText(it) }?.take(64).orEmpty()
+        Log.i(
+            "TranscriptionCoordinator",
+            "utterance ${decision.action} buf=${"%.2f".format(bufferSeconds)}s " +
+                "slice=[${decision.sliceStartSample},${decision.sliceEndSample}] " +
+                "commit=$commit preview='$preview'"
+        )
+        trimRecorderBufferIfNeeded(cursorSample())
+        return true
+    }
+
+    private fun cursorSample(): Int {
+        return ((engine.chunkManager.lastConfirmedSegmentEndMs * AudioRecorder.SAMPLE_RATE) / 1000).toInt()
+    }
+
+    private fun samplesToMs(samples: Int): Long {
+        return samples * 1000L / AudioRecorder.SAMPLE_RATE
+    }
+
     // MARK: - VAD & Delay
 
     private fun keepVadPreroll(currentBufferSize: Int) {
@@ -464,6 +660,7 @@ class TranscriptionCoordinator(
         hasCompletedFirstInference = false
         realtimeInferenceCount = 0
         movingAverageInferenceSeconds = 0.0
+        lastHypothesisEndSample = 0
     }
 }
 
