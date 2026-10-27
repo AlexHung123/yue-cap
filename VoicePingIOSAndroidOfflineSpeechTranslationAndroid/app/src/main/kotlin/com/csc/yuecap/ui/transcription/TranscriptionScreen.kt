@@ -26,6 +26,15 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import kotlin.math.roundToInt
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -185,8 +194,6 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
     var showCaptionPrefs by remember { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
     val scrollState = rememberScrollState()
-    val bottomPanelScrollState = rememberScrollState()
-    var showSessionControls by remember { mutableStateOf(false) }
     var showCantonese by remember { mutableStateOf(false) }
 
     // Elapsed recording timer — based on wall clock, not accumulated delays
@@ -263,94 +270,16 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
                 onToggleCantonese = { showCantonese = !showCantonese }
             )
 
-            Surface(
-                onClick = { showSessionControls = !showSessionControls },
-                modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                color = YueCapColors.Glass,
-                border = BorderStroke(1.dp, YueCapColors.Line)
-            ) {
-                Text(
-                    text = if (showSessionControls) "Hide setup" else "Setup",
-                    color = YueCapColors.Paper,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
-
-            if (showSessionControls) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 340.dp)
-                    .verticalScroll(bottomPanelScrollState)
-            ) {
-                AudioInputModeCard(
-                    audioInputMode = audioInputMode,
-                    systemCaptureReady = systemAudioCaptureReady,
-                    systemCaptureSupported = viewModel.isSystemAudioCaptureSupported,
-                    onInputModeChange = { viewModel.setAudioInputMode(it) },
-                    onRequestSystemCapture = { requestSystemAudioCapture() }
-                )
-
-                // Audio visualizer + recording stats (isolated to limit recomposition scope)
-                if (isRecording) {
-                    RecordingStatsBar(viewModel)
-                }
-
-                // Model info (always visible)
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "${selectedModel.displayName} · ${selectedModel.languages}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = selectedModel.inferenceMethod,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
-                }
-
-                // E2E Evidence overlay (debug builds only)
-                if (BuildConfig.DEBUG) {
-                    val e2eResult by viewModel.e2eResult.collectAsState()
-                    e2eResult?.let { result ->
-                        E2EEvidenceOverlay(result)
-                    }
-                }
-
-                // Resource stats (isolated to limit recomposition scope)
+            // Live recording meters stay on the home screen; Setup controls live in Settings.
+            if (isRecording) {
+                RecordingStatsBar(viewModel)
                 ResourceStatsBar(viewModel, isRecording, elapsedSeconds)
-
-                HomeLanguageSpeechCard(
-                    translationEnabled = translationEnabled,
-                    speakTranslatedAudio = speakTranslatedAudio,
-                    translationSourceLanguageCode = translationSourceLanguageCode,
-                    translationTargetLanguageCode = translationTargetLanguageCode,
-                    ttsRate = ttsRate,
-                    translationProvider = translationProviderState,
-                    isAndroidSystemTranslationAvailable = viewModel.isAndroidSystemTranslationAvailable,
-                    translationModelReady = translationModelReady,
-                    translationDownloadStatus = translationDownloadStatus,
-                    translatedConfirmedText = displayTranslatedConfirmedText,
-                    translatedHypothesisText = displayTranslatedHypothesisText,
-                    translationWarning = displayTranslationWarning,
-                    onTranslationEnabledChange = { viewModel.setTranslationEnabled(it) },
-                    onSpeakTranslatedAudioChange = { viewModel.setSpeakTranslatedAudio(it) },
-                    onSourceLanguageChange = { viewModel.setTranslationSourceLanguageCode(it) },
-                    onTargetLanguageChange = { viewModel.setTranslationTargetLanguageCode(it) },
-                    onTtsRateChange = { viewModel.setTtsRate(it) },
-                    onTranslationProviderChange = { viewModel.setTranslationProvider(it) }
-                )
             }
+            if (BuildConfig.DEBUG) {
+                val e2eResult by viewModel.e2eResult.collectAsState()
+                e2eResult?.let { result ->
+                    E2EEvidenceOverlay(result)
+                }
             }
 
             ControlButtonsRow(
@@ -463,6 +392,29 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
             sparkATest = sparkATest,
             sparkBTesting = sparkBTesting,
             sparkBTest = sparkBTest,
+            audioInputMode = audioInputMode,
+            systemCaptureReady = systemAudioCaptureReady,
+            systemCaptureSupported = viewModel.isSystemAudioCaptureSupported,
+            onInputModeChange = { viewModel.setAudioInputMode(it) },
+            onRequestSystemCapture = { requestSystemAudioCapture() },
+            translationEnabled = translationEnabled,
+            speakTranslatedAudio = speakTranslatedAudio,
+            translationSourceLanguageCode = translationSourceLanguageCode,
+            translationTargetLanguageCode = translationTargetLanguageCode,
+            ttsRate = ttsRate,
+            translationProvider = translationProviderState,
+            isAndroidSystemTranslationAvailable = viewModel.isAndroidSystemTranslationAvailable,
+            translationModelReady = translationModelReady,
+            translationDownloadStatus = translationDownloadStatus,
+            translatedConfirmedText = displayTranslatedConfirmedText,
+            translatedHypothesisText = displayTranslatedHypothesisText,
+            translationWarning = displayTranslationWarning,
+            onTranslationEnabledChange = { viewModel.setTranslationEnabled(it) },
+            onSpeakTranslatedAudioChange = { viewModel.setSpeakTranslatedAudio(it) },
+            onSourceLanguageChange = { viewModel.setTranslationSourceLanguageCode(it) },
+            onTargetLanguageChange = { viewModel.setTranslationTargetLanguageCode(it) },
+            onTtsRateChange = { viewModel.setTtsRate(it) },
+            onTranslationProviderChange = { viewModel.setTranslationProvider(it) },
             onCopyText = { clipboardManager.setText(AnnotatedString(viewModel.fullText)) },
             onClearTranscription = { viewModel.clearTranscription() },
             onVADChange = { viewModel.setUseVAD(it) },
@@ -670,11 +622,83 @@ private fun KaraokeCaptionBlock(
 }
 
 private val captionFontSizeLabels = mapOf(
-    18 to "小",
-    22 to "中",
-    28 to "大",
-    34 to "特大"
+    16 to "Extra Small",
+    18 to "Small",
+    22 to "Medium",
+    28 to "Large",
+    34 to "Extra Large"
 )
+
+/** Oppo-style discrete font slider: blue capsule track, small white stop dots, large white circle thumb. */
+@Composable
+private fun FiveStopCaptionSizeSlider(
+    selectedIndex: Int,
+    stopCount: Int,
+    onIndexSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val trackBlue = Color(0xFF2F6BFF)
+    val density = LocalDensity.current
+    fun indexFromX(x: Float, width: Float): Int {
+        if (width <= 0f || stopCount <= 1) return 0
+        val fraction = (x / width).coerceIn(0f, 1f)
+        return (fraction * (stopCount - 1)).roundToInt().coerceIn(0, stopCount - 1)
+    }
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .semantics { contentDescription = "Caption font size slider" }
+            .pointerInput(stopCount) {
+                detectTapGestures { offset ->
+                    onIndexSelected(indexFromX(offset.x, size.width.toFloat()))
+                }
+            }
+            .pointerInput(stopCount) {
+                detectDragGestures { change, _ ->
+                    change.consume()
+                    onIndexSelected(indexFromX(change.position.x, size.width.toFloat()))
+                }
+            },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        val widthPx = with(density) { maxWidth.toPx() }
+        val heightPx = with(density) { maxHeight.toPx() }
+        val trackHeightPx = with(density) { 8.dp.toPx() }
+        val stopDotRadiusPx = with(density) { 3.dp.toPx() }
+        val thumbRadiusPx = with(density) { 11.dp.toPx() }
+        val horizontalInset = thumbRadiusPx
+        val usable = (widthPx - horizontalInset * 2f).coerceAtLeast(1f)
+
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val trackTop = (heightPx - trackHeightPx) / 2f
+            drawRoundRect(
+                color = trackBlue,
+                topLeft = Offset(horizontalInset, trackTop),
+                size = Size(usable, trackHeightPx),
+                cornerRadius = CornerRadius(trackHeightPx / 2f, trackHeightPx / 2f)
+            )
+            for (i in 0 until stopCount) {
+                val cx = horizontalInset + usable * (i.toFloat() / (stopCount - 1).toFloat())
+                val cy = heightPx / 2f
+                if (i == selectedIndex) {
+                    drawCircle(
+                        color = Color.White,
+                        radius = thumbRadiusPx,
+                        center = Offset(cx, cy)
+                    )
+                } else {
+                    drawCircle(
+                        color = Color.White,
+                        radius = stopDotRadiusPx,
+                        center = Offset(cx, cy)
+                    )
+                }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -685,9 +709,10 @@ private fun CaptionPrefsBottomSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val options = AppPreferences.CAPTION_FONT_SIZE_OPTIONS
-    val selectedIndex = options.indexOf(selectedSizeSp).let { if (it >= 0) it else options.indexOf(AppPreferences.DEFAULT_CAPTION_FONT_SIZE_SP) }
-    var sliderIndex by remember(selectedSizeSp) { mutableFloatStateOf(selectedIndex.toFloat()) }
-    val previewSizeSp = options[kotlin.math.round(sliderIndex).toInt().coerceIn(0, options.lastIndex)]
+    val selectedIndex = options.indexOf(selectedSizeSp).let {
+        if (it >= 0) it else options.indexOf(AppPreferences.DEFAULT_CAPTION_FONT_SIZE_SP)
+    }.coerceIn(0, options.lastIndex)
+    val previewSizeSp = options[selectedIndex]
     val sizeLabel = captionFontSizeLabels[previewSizeSp] ?: previewSizeSp.toString()
 
     ModalBottomSheet(
@@ -704,7 +729,7 @@ private fun CaptionPrefsBottomSheet(
                 .padding(bottom = 28.dp)
         ) {
             Text(
-                text = "字幕偏好設定",
+                text = "Caption Preferences",
                 style = MaterialTheme.typography.titleMedium,
                 color = YueCapColors.Paper,
                 fontWeight = FontWeight.SemiBold,
@@ -726,7 +751,7 @@ private fun CaptionPrefsBottomSheet(
                     border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
                 ) {
                     Text(
-                        text = "字幕外觀示例",
+                        text = "Caption appearance example",
                         color = YueCapColors.CaptionCurrent,
                         fontSize = previewSizeSp.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -743,7 +768,7 @@ private fun CaptionPrefsBottomSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "字體大小",
+                    text = "Font size",
                     color = YueCapColors.Paper,
                     style = MaterialTheme.typography.bodyLarge
                 )
@@ -754,25 +779,13 @@ private fun CaptionPrefsBottomSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            Slider(
-                value = sliderIndex,
-                onValueChange = { value ->
-                    val idx = kotlin.math.round(value).toInt().coerceIn(0, options.lastIndex)
-                    sliderIndex = idx.toFloat()
-                    onSizeSelected(options[idx])
-                },
-                valueRange = 0f..options.lastIndex.toFloat(),
-                steps = (options.size - 2).coerceAtLeast(0),
-                colors = SliderDefaults.colors(
-                    thumbColor = YueCapColors.Paper,
-                    activeTrackColor = YueCapColors.Paper,
-                    inactiveTrackColor = YueCapColors.Mist.copy(alpha = 0.35f)
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Caption font size slider" }
+            FiveStopCaptionSizeSlider(
+                selectedIndex = selectedIndex,
+                stopCount = options.size,
+                onIndexSelected = { idx -> onSizeSelected(options[idx]) },
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -949,6 +962,29 @@ private fun SettingsBottomSheet(
     sparkATest: ConnectionTestResult?,
     sparkBTesting: Boolean,
     sparkBTest: ConnectionTestResult?,
+    audioInputMode: AudioInputMode,
+    systemCaptureReady: Boolean,
+    systemCaptureSupported: Boolean,
+    onInputModeChange: (AudioInputMode) -> Unit,
+    onRequestSystemCapture: () -> Unit,
+    translationEnabled: Boolean,
+    speakTranslatedAudio: Boolean,
+    translationSourceLanguageCode: String,
+    translationTargetLanguageCode: String,
+    ttsRate: Float,
+    translationProvider: TranslationProvider,
+    isAndroidSystemTranslationAvailable: Boolean,
+    translationModelReady: Boolean,
+    translationDownloadStatus: String?,
+    translatedConfirmedText: String,
+    translatedHypothesisText: String,
+    translationWarning: String,
+    onTranslationEnabledChange: (Boolean) -> Unit,
+    onSpeakTranslatedAudioChange: (Boolean) -> Unit,
+    onSourceLanguageChange: (String) -> Unit,
+    onTargetLanguageChange: (String) -> Unit,
+    onTtsRateChange: (Float) -> Unit,
+    onTranslationProviderChange: (TranslationProvider) -> Unit,
     onCopyText: () -> Unit,
     onClearTranscription: () -> Unit,
     onVADChange: (Boolean) -> Unit,
@@ -994,6 +1030,38 @@ private fun SettingsBottomSheet(
                 color = YueCapColors.Paper,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
+
+            // Former main-screen Setup: input mode + caption/translation controls.
+            AudioInputModeCard(
+                audioInputMode = audioInputMode,
+                systemCaptureReady = systemCaptureReady,
+                systemCaptureSupported = systemCaptureSupported,
+                onInputModeChange = onInputModeChange,
+                onRequestSystemCapture = onRequestSystemCapture
+            )
+
+            HomeLanguageSpeechCard(
+                translationEnabled = translationEnabled,
+                speakTranslatedAudio = speakTranslatedAudio,
+                translationSourceLanguageCode = translationSourceLanguageCode,
+                translationTargetLanguageCode = translationTargetLanguageCode,
+                ttsRate = ttsRate,
+                translationProvider = translationProvider,
+                isAndroidSystemTranslationAvailable = isAndroidSystemTranslationAvailable,
+                translationModelReady = translationModelReady,
+                translationDownloadStatus = translationDownloadStatus,
+                translatedConfirmedText = translatedConfirmedText,
+                translatedHypothesisText = translatedHypothesisText,
+                translationWarning = translationWarning,
+                onTranslationEnabledChange = onTranslationEnabledChange,
+                onSpeakTranslatedAudioChange = onSpeakTranslatedAudioChange,
+                onSourceLanguageChange = onSourceLanguageChange,
+                onTargetLanguageChange = onTargetLanguageChange,
+                onTtsRateChange = onTtsRateChange,
+                onTranslationProviderChange = onTranslationProviderChange
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
             Text(
                 text = "Spark A",

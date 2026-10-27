@@ -35,13 +35,17 @@ class AppPreferences(private val context: Context) {
         private val CAPTION_FONT_SIZE_SP = stringPreferencesKey("caption_font_size_sp")
         private val TRANSLATION_PROVIDER = stringPreferencesKey("translation_provider")
 
-        /** Discrete caption sizes: 小 / 中 / 大 / 特大. Default Medium = 22. */
+        /**
+         * Discrete caption sizes (5 stops): Extra Small / Small / Medium / Large / Extra Large.
+         * Default Medium = 22. Older 4-step values (18/22/28/34) map onto the nearest stop.
+         */
         const val DEFAULT_CAPTION_FONT_SIZE_SP = 22
-        val CAPTION_FONT_SIZE_OPTIONS = listOf(18, 22, 28, 34)
+        val CAPTION_FONT_SIZE_OPTIONS = listOf(16, 18, 22, 28, 34)
 
         fun normalizeCaptionFontSizeSp(requested: Int?): Int {
             if (requested == null) return DEFAULT_CAPTION_FONT_SIZE_SP
             if (requested in CAPTION_FONT_SIZE_OPTIONS) return requested
+            // Migrate any legacy / out-of-range value onto the nearest of the 5 stops.
             return CAPTION_FONT_SIZE_OPTIONS.minBy { kotlin.math.abs(it - requested) }
         }
         private val ASR_BASE_URL = stringPreferencesKey("asr_base_url")
