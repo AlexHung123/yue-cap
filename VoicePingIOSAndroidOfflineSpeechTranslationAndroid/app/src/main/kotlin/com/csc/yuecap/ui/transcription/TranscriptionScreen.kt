@@ -65,6 +65,7 @@ import com.csc.yuecap.ui.theme.GlassPanel
 import com.csc.yuecap.ui.theme.YueCapColors
 import androidx.compose.foundation.BorderStroke
 import com.csc.yuecap.util.FormatUtils
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -518,7 +519,11 @@ private fun TranscriptionTextDisplay(
                     pastText = pastText,
                     currentText = currentText,
                     sizeSp = captionFontSizeSp,
-                    contentDescription = if (useTranslatedPrimary) "English caption" else "Source caption"
+                    contentDescription = if (useTranslatedPrimary) "English caption" else "Source caption",
+                    // Typewriter is mainly for English reading comfort; source-only uses it too
+                    // so Live mic captions get the same past-gray / current-bright feel.
+                    typewriter = true,
+                    scrollState = scrollState
                 )
             }
         }
@@ -560,7 +565,8 @@ private fun TranscriptionTextDisplay(
                     currentText = cantoneseCurrent,
                     sizeSp = cantoneseSize,
                     emptyFallback = "No Cantonese yet.",
-                    contentDescription = "Cantonese caption"
+                    contentDescription = "Cantonese caption",
+                    typewriter = false
                 )
             }
         }
@@ -572,6 +578,8 @@ private fun TranscriptionTextDisplay(
  * Progressive caption: already-confirmed / read text is dim; the live hypothesis
  * (or currently arriving segment) is bright — karaoke / floating-caption style.
  * Past and current share the same font size; contrast is color (and slight weight).
+ * When [typewriter] is true, only the newest segment reveals character-by-character;
+ * history stays put. Mid-type updates cancel and restart (or continue on a prefix extension).
  */
 @Composable
 private fun KaraokeCaptionBlock(
@@ -579,12 +587,61 @@ private fun KaraokeCaptionBlock(
     currentText: String,
     sizeSp: Int = AppPreferences.DEFAULT_CAPTION_FONT_SIZE_SP,
     emptyFallback: String? = null,
-    contentDescription: String
+    contentDescription: String,
+    typewriter: Boolean = false,
+    scrollState: ScrollState? = null
 ) {
     val past = pastText.trim()
     val current = currentText.trim()
     val a11yLabel = contentDescription
     val lineHeightSp = sizeSp + 10
+    var displayedCurrent by remember { mutableStateOf("") }
+
+    LaunchedEffect(current, typewriter) {
+        if (!typewriter) {
+            displayedCurrent = current
+            return@LaunchedEffect
+        }
+        if (current.isEmpty()) {
+            displayedCurrent = ""
+            return@LaunchedEffect
+        }
+        // Continue typing if the target grew with the same prefix; otherwise retype cleanly.
+        val startIndex = when {
+            current.startsWith(displayedCurrent) -> displayedCurrent.length
+            else -> {
+                val overlap = displayedCurrent.commonPrefixWith(current).length
+                // Keep a useful overlap only when most of what was shown still matches
+                // (polish/replace of the same segment); otherwise start over to avoid flicker spam.
+                if (overlap >= 8 || (displayedCurrent.isNotEmpty() && overlap * 2 >= displayedCurrent.length)) {
+                    overlap
+                } else {
+                    0
+                }
+            }
+        }
+        if (startIndex == 0) {
+            displayedCurrent = ""
+        } else if (startIndex < displayedCurrent.length) {
+            displayedCurrent = current.take(startIndex)
+        }
+        if (startIndex >= current.length) {
+            displayedCurrent = current
+            return@LaunchedEffect
+        }
+        val delayMs = 1000L / TYPEWRITER_CHARS_PER_SECOND
+        for (i in (startIndex + 1)..current.length) {
+            displayedCurrent = current.take(i)
+            scrollState?.scrollTo(scrollState.maxValue)
+            delay(delayMs)
+        }
+    }
+
+    // Keep the typing end visible even when scrollState is null (parent scroll keys).
+    LaunchedEffect(displayedCurrent, past) {
+        scrollState?.scrollTo(scrollState.maxValue)
+    }
+
     if (past.isEmpty() && current.isEmpty()) {
         if (emptyFallback != null) {
             Text(
@@ -597,6 +654,7 @@ private fun KaraokeCaptionBlock(
         }
         return
     }
+    val shownCurrent = if (typewriter) displayedCurrent else current
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.semantics { this.contentDescription = a11yLabel }
@@ -611,12 +669,12 @@ private fun KaraokeCaptionBlock(
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        if (current.isNotEmpty()) {
+        if (shownCurrent.isNotEmpty()) {
             if (past.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(10.dp))
             }
             Text(
-                text = current,
+                text = shownCurrent,
                 color = YueCapColors.CaptionCurrent,
                 fontSize = sizeSp.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -626,6 +684,9 @@ private fun KaraokeCaptionBlock(
         }
     }
 }
+
+/** Reveal speed for the live English caption segment (~40 chars/sec). */
+private const val TYPEWRITER_CHARS_PER_SECOND = 40
 
 private val captionFontSizeLabels = mapOf(
     16 to "Extra Small",
@@ -813,7 +874,9 @@ private fun CaptionPrefsBottomSheet(
 /**
  * Map ASR confirmed + hypothesis into karaoke past/current.
  * With a live hypothesis, confirmed is past and hypothesis is current.
- * With only confirmed text, the last line/paragraph stays bright as the focus.
+ * With only confirmed text, the last sentence/paragraph stays bright as the focus;
+ * older sentences render gray. English is usually space-joined (normalizeText collapses
+ * newlines), so we also split on sentence-ending punctuation.
  */
 private fun splitPastAndCurrent(confirmed: String, hypothesis: String): Pair<String, String> {
     val hyp = hypothesis.trim()
@@ -824,12 +887,23 @@ private fun splitPastAndCurrent(confirmed: String, hypothesis: String): Pair<Str
     if (conf.isEmpty()) {
         return "" to ""
     }
-    val parts = conf.split(Regex("\n+")).map { it.trim() }.filter { it.isNotEmpty() }
+    val parts = splitCaptionSegments(conf)
     return if (parts.size <= 1) {
         "" to conf
     } else {
+        // Keep past sentences on separate lines so gray history is easy to scan.
         parts.dropLast(1).joinToString("\n") to parts.last()
     }
+}
+
+/** Split caption text into past-able segments: paragraphs first, else sentences. */
+private fun splitCaptionSegments(text: String): List<String> {
+    val byPara = text.split(Regex("\n+")).map { it.trim() }.filter { it.isNotEmpty() }
+    if (byPara.size > 1) return byPara
+    // English chunks are space-joined after .!?…; CJK often has no space after 。！？…
+    val sentenceRegex = Regex("""(?<=[.!?…])\s+|(?<=[。！？…])""")
+    val sentences = text.split(sentenceRegex).map { it.trim() }.filter { it.isNotEmpty() }
+    return if (sentences.size > 1) sentences else listOf(text.trim()).filter { it.isNotEmpty() }
 }
 
 private enum class CaptionStatus(val label: String) {
