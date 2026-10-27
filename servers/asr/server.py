@@ -33,6 +33,21 @@ HOST = os.environ.get("ASR_HOST", "0.0.0.0")
 PORT = int(os.environ.get("ASR_PORT", "8005"))
 
 ALLOWED_LANG = {"auto", "zh", "en", "yue", "ja", "ko", "nospeech"}
+# SenseVoice event tags that are not someone talking. A forced language=yue
+# still transcribes these, which shows up as captions during a break or a
+# music bed. Empty event means this sherpa build did not report one.
+NON_SPEECH_EVENTS = {
+    "bgm",
+    "music",
+    "applause",
+    "laughter",
+    "laugh",
+    "cry",
+    "sneeze",
+    "breath",
+    "cough",
+    "nospeech",
+}
 
 
 def ensure_model(model_dir: Path) -> tuple[Path, Path]:
@@ -94,6 +109,15 @@ recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
 app = FastAPI(title="YueCap Spark A — SenseVoice ASR")
 
 
+def transcript_for_result(result: object) -> tuple[str, str]:
+    """Return (text, event). Non-speech events become an empty transcript."""
+    event = str(getattr(result, "event", "") or "").strip()
+    text = str(getattr(result, "text", "") or "").strip()
+    if event.lower() in NON_SPEECH_EVENTS:
+        return "", event
+    return text, event
+
+
 def wav_bytes_to_float32(data: bytes) -> tuple[np.ndarray, int]:
     with wave.open(io.BytesIO(data), "rb") as wf:
         channels = wf.getnchannels()
@@ -136,8 +160,12 @@ async def asr(
     stream = recognizer.create_stream()
     stream.accept_waveform(sample_rate, samples)
     recognizer.decode_stream(stream)
-    text = (stream.result.text or "").strip()
-    return JSONResponse({"text": text, "lang": lang, "requested_lang": requested})
+    text, event = transcript_for_result(stream.result)
+    if event and not text:
+        print(f"[asr] drop non-speech event={event}")
+    return JSONResponse(
+        {"text": text, "lang": lang, "event": event, "requested_lang": requested}
+    )
 
 
 if __name__ == "__main__":

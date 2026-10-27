@@ -431,7 +431,8 @@ class TranscriptionCoordinator(
                 return
             }
             UtteranceDecision.Action.AdvanceSilence,
-            UtteranceDecision.Action.SkipShort -> {
+            UtteranceDecision.Action.SkipShort,
+            UtteranceDecision.Action.SkipNonSpeech -> {
                 engine.chunkManager.advanceCursor(samplesToMs(decision.nextCursorSample))
                 lastBufferSize = currentBufferSize
                 trimRecorderBufferIfNeeded(decision.nextCursorSample)
@@ -468,6 +469,13 @@ class TranscriptionCoordinator(
         val cursor = cursorSample()
         if (currentCount <= cursor) return
         val decision = decideUtterance(cursor, currentCount, flush = true)
+        if (decision.action == UtteranceDecision.Action.SkipNonSpeech ||
+            decision.action == UtteranceDecision.Action.SkipShort ||
+            decision.action == UtteranceDecision.Action.AdvanceSilence
+        ) {
+            engine.chunkManager.discardUtterance(samplesToMs(decision.nextCursorSample))
+            return
+        }
         if (decision.action != UtteranceDecision.Action.Endpoint &&
             decision.action != UtteranceDecision.Action.ForceCut &&
             decision.action != UtteranceDecision.Action.Hypothesis
@@ -480,14 +488,16 @@ class TranscriptionCoordinator(
         )
         if (audioSamples.isEmpty()) return
         val segments = transcribeSlice(asrEngine, audioSamples)
-        if (segments.isNotEmpty()) {
-            // Offset stays 0 so SenseVoice's 0/0 timestamp segment remains a hypothesis
-            // until commitUtterance folds it in. A non-zero offset would confirm it early.
-            engine.chunkManager.processTranscriptionResult(segments, 0)
+        if (segments.isEmpty()) {
+            engine.chunkManager.discardUtterance(samplesToMs(decision.nextCursorSample))
+        } else {
+            // Remote ASR stamps endMs with the slice duration. Force 0/0 so that
+            // stamp cannot move the utterance cursor or confirm the line early.
+            engine.chunkManager.processTranscriptionResult(asHypothesis(segments), 0)
             val lang = WhisperEngine.normalizeLanguageCode(segments.firstOrNull()?.detectedLanguage)
             if (lang != null) engine.updateDetectedLanguage(lang)
+            engine.chunkManager.commitUtterance(samplesToMs(decision.nextCursorSample))
         }
-        engine.chunkManager.commitUtterance(samplesToMs(decision.nextCursorSample))
         Log.i(
             "TranscriptionCoordinator",
             "utterance flush: action=${decision.action} text='${engine.chunkManager.confirmedText.takeLast(60)}'"
@@ -554,11 +564,17 @@ class TranscriptionCoordinator(
                 engine.updateTokensPerSecond(totalWords / elapsed)
             }
         }
-        if (newSegments.isNotEmpty()) {
-            engine.chunkManager.processTranscriptionResult(newSegments, 0)
-        }
-        if (commit) {
-            engine.chunkManager.commitUtterance(samplesToMs(decision.nextCursorSample))
+        if (newSegments.isEmpty()) {
+            if (commit) {
+                engine.chunkManager.discardUtterance(samplesToMs(decision.nextCursorSample))
+            } else {
+                engine.chunkManager.clearHypothesis()
+            }
+        } else {
+            engine.chunkManager.processTranscriptionResult(asHypothesis(newSegments), 0)
+            if (commit) {
+                engine.chunkManager.commitUtterance(samplesToMs(decision.nextCursorSample))
+            }
         }
         engine.updateConfirmedText(engine.chunkManager.confirmedText)
         engine.updateHypothesisText(engine.chunkManager.hypothesisText)
@@ -573,6 +589,10 @@ class TranscriptionCoordinator(
         )
         trimRecorderBufferIfNeeded(cursorSample())
         return true
+    }
+
+    private fun asHypothesis(segments: List<TranscriptionSegment>): List<TranscriptionSegment> {
+        return segments.map { it.copy(startMs = 0L, endMs = 0L) }
     }
 
     private fun cursorSample(): Int {

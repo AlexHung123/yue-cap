@@ -186,6 +186,21 @@ class StreamingChunkManager(
         }
     }
 
+    /** Drop the open hypothesis and move on. Used when a run was not speech. */
+    fun discardUtterance(endMs: Long) {
+        prevUnconfirmedSegments = emptyList()
+        hypothesisText = ""
+        confirmedText = completedChunksText
+        if (endMs > lastConfirmedSegmentEndMs) {
+            lastConfirmedSegmentEndMs = endMs
+        }
+    }
+
+    fun clearHypothesis() {
+        prevUnconfirmedSegments = emptyList()
+        hypothesisText = ""
+    }
+
     /**
      * Finalize the trailing audio after recording stops.
      * Processes the final transcription segments with their offset.

@@ -29,7 +29,7 @@ class UtteranceSegmenterTest {
 
     @Test
     fun speechWithoutPause_staysHypothesis() {
-        val samples = tone(1.2f) + silence(0.2f)
+        val samples = speech(1.2f) + silence(0.2f)
         val decision = decide(samples)
 
         assertEquals(UtteranceDecision.Action.Hypothesis, decision.action)
@@ -41,9 +41,9 @@ class UtteranceSegmenterTest {
     @Test
     fun pauseAfterSpeech_endpointsWithPad() {
         val leading = silence(0.3f)
-        val speech = tone(1.2f)
+        val spoken = speech(1.2f)
         val trailing = silence(0.6f)
-        val samples = leading + speech + trailing
+        val samples = leading + spoken + trailing
         val decision = decide(samples)
 
         assertEquals(UtteranceDecision.Action.Endpoint, decision.action)
@@ -55,7 +55,7 @@ class UtteranceSegmenterTest {
 
     @Test
     fun uninterruptedSpeech_forceCutsAtFiveSeconds() {
-        val samples = tone(5.2f)
+        val samples = speech(5.2f)
         val decision = decide(samples)
 
         assertEquals(UtteranceDecision.Action.ForceCut, decision.action)
@@ -65,8 +65,35 @@ class UtteranceSegmenterTest {
     }
 
     @Test
+    fun monotoneBed_isNotSentAsSpeech() {
+        val samples = tone(1.2f) + silence(0.2f)
+        val decision = decide(samples)
+
+        assertEquals(UtteranceDecision.Action.SkipNonSpeech, decision.action)
+        assertTrue(decision.nextCursorSample > seconds(0.8f))
+    }
+
+    @Test
+    fun monotoneBedThenPause_skipsTheWholeRun() {
+        val samples = tone(1.2f) + silence(0.6f)
+        val decision = decide(samples)
+
+        assertEquals(UtteranceDecision.Action.SkipNonSpeech, decision.action)
+        assertTrue(decision.nextCursorSample > seconds(1.2f))
+    }
+
+    @Test
+    fun longMonotoneBed_skipsAtTheFiveSecondCap() {
+        val samples = tone(5.2f)
+        val decision = decide(samples)
+
+        assertEquals(UtteranceDecision.Action.SkipNonSpeech, decision.action)
+        assertEquals(seconds(5.0f), decision.nextCursorSample)
+    }
+
+    @Test
     fun shortBlipBeforeOpenUtterance_hypothesisStartsAfterBlip() {
-        val samples = tone(0.3f) + silence(0.6f) + tone(1.0f)
+        val samples = tone(0.3f) + silence(0.6f) + speech(1.0f)
         val decision = decide(samples)
 
         assertEquals(UtteranceDecision.Action.Hypothesis, decision.action)
@@ -78,7 +105,7 @@ class UtteranceSegmenterTest {
 
     @Test
     fun twoSentencesInOneBuffer_returnsOnlyTheFirstEndpoint() {
-        val samples = tone(1.0f) + silence(0.6f) + tone(1.0f)
+        val samples = speech(1.0f) + silence(0.6f) + speech(1.0f)
         val decision = decide(samples)
 
         assertEquals(UtteranceDecision.Action.Endpoint, decision.action)
@@ -88,11 +115,19 @@ class UtteranceSegmenterTest {
 
     @Test
     fun flush_commitsTrailingSpeechWithoutAPause() {
-        val samples = tone(0.5f)
+        val samples = speech(0.5f)
         val decision = decide(samples, flush = true)
 
         assertEquals(UtteranceDecision.Action.Endpoint, decision.action)
         assertEquals(samples.size, decision.sliceEndSample)
+    }
+
+    @Test
+    fun flush_dropsAMonotoneBed() {
+        val samples = tone(1.0f)
+        val decision = decide(samples, flush = true)
+
+        assertEquals(UtteranceDecision.Action.SkipNonSpeech, decision.action)
     }
 
     @Test
@@ -114,6 +149,18 @@ class UtteranceSegmenterTest {
         assertEquals("我哋聽日", manager.confirmedText)
         assertEquals("", manager.hypothesisText)
         assertEquals(1500L, manager.lastConfirmedSegmentEndMs)
+    }
+
+    @Test
+    fun discardUtterance_dropsHypothesisAndMovesCursor() {
+        val manager = StreamingChunkManager(chunkSeconds = 5f, sampleRate = sampleRate)
+        manager.processTranscriptionResult(listOf(TranscriptionSegment("背景音樂", 0, 0)))
+
+        manager.discardUtterance(2000)
+
+        assertEquals("", manager.hypothesisText)
+        assertEquals("", manager.confirmedText)
+        assertEquals(2000L, manager.lastConfirmedSegmentEndMs)
     }
 
     @Test
@@ -144,5 +191,15 @@ class UtteranceSegmenterTest {
 
     private fun tone(durationSeconds: Float, amplitude: Float = 0.05f): FloatArray {
         return FloatArray(seconds(durationSeconds)) { amplitude }
+    }
+
+    /** Loud syllable, then a near-silent gap. The last frame stays loud. */
+    private fun speech(durationSeconds: Float): FloatArray {
+        val total = seconds(durationSeconds)
+        val frame = sampleRate / 10
+        return FloatArray(total) { index ->
+            val lastFrame = index >= total - frame
+            if (lastFrame || (index / frame) % 2 == 0) 0.08f else 0f
+        }
     }
 }

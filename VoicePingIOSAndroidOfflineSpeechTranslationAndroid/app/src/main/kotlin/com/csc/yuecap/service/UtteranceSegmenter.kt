@@ -42,17 +42,25 @@ class UtteranceSegmenter(
         var speechStart = -1
         var lastVoiceEnd = -1
         var skippedUntil = cursorSample
+        val levels = ArrayList<Float>()
 
         while (position < bufferEndSample) {
             val frameEnd = minOf(position + frameSamples, bufferEndSample)
             val frameRms = rms(samples, samplesOrigin, position, frameEnd)
             if (frameRms >= voiceRms) {
-                if (speechStart < 0) speechStart = position
+                if (speechStart < 0) {
+                    speechStart = position
+                    levels.clear()
+                }
+                levels.add(frameRms)
                 lastVoiceEnd = frameEnd
                 if (lastVoiceEnd - speechStart >= maxSamples) {
                     val cut = speechStart + maxSamples
                     return cutDecision(
-                        action = UtteranceDecision.Action.ForceCut,
+                        action = speechOrSteady(
+                            UtteranceDecision.Action.ForceCut,
+                            levels,
+                        ),
                         speechStart = speechStart,
                         sliceEnd = cut,
                         cursorSample = cursorSample,
@@ -65,7 +73,10 @@ class UtteranceSegmenter(
                 val speechSamples = lastVoiceEnd - speechStart
                 if (speechSamples >= minSamples) {
                     return cutDecision(
-                        action = UtteranceDecision.Action.Endpoint,
+                        action = speechOrSteady(
+                            UtteranceDecision.Action.Endpoint,
+                            levels,
+                        ),
                         speechStart = speechStart,
                         sliceEnd = lastVoiceEnd + padSamples,
                         cursorSample = cursorSample,
@@ -79,8 +90,12 @@ class UtteranceSegmenter(
                 skippedUntil = maxOf(skippedUntil, lastVoiceEnd)
                 speechStart = -1
                 lastVoiceEnd = -1
+                levels.clear()
                 position = frameEnd
                 continue
+            } else if (speechStart >= 0) {
+                // Short dip inside the run. A monotone bed has none of these.
+                levels.add(frameRms)
             }
             if (frameEnd == bufferEndSample) break
             position = frameEnd
@@ -88,7 +103,10 @@ class UtteranceSegmenter(
 
         if (flush && speechStart >= 0 && lastVoiceEnd - speechStart >= flushSamples) {
             return cutDecision(
-                action = UtteranceDecision.Action.Endpoint,
+                action = speechOrSteady(
+                    UtteranceDecision.Action.Endpoint,
+                    levels,
+                ),
                 speechStart = speechStart,
                 sliceEnd = lastVoiceEnd + padSamples,
                 cursorSample = cursorSample,
@@ -99,6 +117,18 @@ class UtteranceSegmenter(
         }
 
         if (speechStart >= 0 && lastVoiceEnd - speechStart >= minSamples) {
+            if (isSteadyNonSpeech(levels)) {
+                val next = (bufferEndSample - padSamples).coerceAtLeast(cursorSample)
+                if (next > cursorSample) {
+                    return UtteranceDecision(
+                        action = UtteranceDecision.Action.SkipNonSpeech,
+                        sliceStartSample = next,
+                        sliceEndSample = next,
+                        nextCursorSample = next,
+                    )
+                }
+                return UtteranceDecision.wait(cursorSample)
+            }
             val sliceStart = paddedStart(speechStart, padSamples, samplesOrigin)
             val nextCursor = sliceStart.coerceAtLeast(cursorSample)
             return UtteranceDecision(
@@ -159,6 +189,35 @@ class UtteranceSegmenter(
         )
     }
 
+    /**
+     * Monotone music and a boosted room tone stay in a narrow level band.
+     * Conversational speech dips between syllables, so its min/max ratio is low.
+     * Trailing silence is ignored; dips inside the run still count.
+     */
+    private fun isSteadyNonSpeech(levels: List<Float>): Boolean {
+        val body = levels.dropLastWhile { it < voiceRms }
+        if (body.size < 4) return false
+        var minLevel = Float.POSITIVE_INFINITY
+        var maxLevel = 0f
+        for (level in body) {
+            if (level < minLevel) minLevel = level
+            if (level > maxLevel) maxLevel = level
+        }
+        if (maxLevel < voiceRms) return false
+        return minLevel / maxLevel >= STEADY_LEVEL_RATIO
+    }
+
+    private fun speechOrSteady(
+        speechAction: UtteranceDecision.Action,
+        levels: List<Float>,
+    ): UtteranceDecision.Action {
+        return if (isSteadyNonSpeech(levels)) {
+            UtteranceDecision.Action.SkipNonSpeech
+        } else {
+            speechAction
+        }
+    }
+
     private fun paddedStart(speechStart: Int, padSamples: Int, samplesOrigin: Int): Int {
         return (speechStart - padSamples).coerceAtLeast(samplesOrigin).coerceAtLeast(0)
     }
@@ -184,6 +243,8 @@ class UtteranceSegmenter(
         const val PAD_SECONDS = 0.2f
         const val VOICE_RMS = 0.012f
         const val MIN_FLUSH_SECONDS = 0.4f
+        /** min/max frame level above this means the run is a drone, not speech. */
+        const val STEADY_LEVEL_RATIO = 0.62f
     }
 }
 
@@ -199,6 +260,7 @@ data class UtteranceDecision(
         Endpoint,
         ForceCut,
         SkipShort,
+        SkipNonSpeech,
         AdvanceSilence,
     }
 
