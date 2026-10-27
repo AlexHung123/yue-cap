@@ -874,7 +874,7 @@ private fun CaptionStatusBar(
                     modifier = Modifier.padding(start = 8.dp)
                 )
             }
-            // Circular serif "Tt" control — matches floating-app caption prefs glyph.
+            // Circular serif "TT" control — large T + smaller T (typography icon).
             Surface(
                 onClick = onOpenCaptionPrefs,
                 modifier = Modifier
@@ -885,14 +885,25 @@ private fun CaptionStatusBar(
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "Tt",
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.Normal,
-                        letterSpacing = (-0.5).sp
-                    )
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            text = "T",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Normal,
+                            lineHeight = 18.sp
+                        )
+                        Text(
+                            text = "T",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Normal,
+                            lineHeight = 12.sp,
+                            modifier = Modifier.padding(start = 1.dp, bottom = 1.dp)
+                        )
+                    }
                 }
             }
         }
