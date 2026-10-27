@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.sp
 import com.csc.yuecap.service.ConnectionTestResult
+import com.csc.yuecap.data.AppPreferences
 import com.csc.yuecap.BuildConfig
 import com.csc.yuecap.model.AudioInputMode
 import com.csc.yuecap.model.ModelInfo
@@ -155,6 +156,7 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
     val translationSourceLanguageCode by viewModel.translationSourceLanguageCode.collectAsState()
     val translationTargetLanguageCode by viewModel.translationTargetLanguageCode.collectAsState()
     val ttsRate by viewModel.ttsRate.collectAsState()
+    val captionFontSizeSp by viewModel.captionFontSizeSp.collectAsState()
     val translationProviderState by viewModel.translationProvider.collectAsState()
     val translatedConfirmedText by viewModel.translatedConfirmedText.collectAsState()
     val translatedHypothesisText by viewModel.translatedHypothesisText.collectAsState()
@@ -250,6 +252,8 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
                 translationWarning = displayTranslationWarning,
                 isRecording = isRecording,
                 errorMessage = lastError?.message,
+                captionFontSizeSp = captionFontSizeSp,
+                onCaptionFontSizeChange = { viewModel.setCaptionFontSizeSp(it) },
                 showCantonese = showCantonese,
                 onToggleCantonese = { showCantonese = !showCantonese }
             )
@@ -466,6 +470,8 @@ private fun TranscriptionTextDisplay(
     translationWarning: String,
     isRecording: Boolean,
     errorMessage: String?,
+    captionFontSizeSp: Int,
+    onCaptionFontSizeChange: (Int) -> Unit,
     showCantonese: Boolean,
     onToggleCantonese: () -> Unit
 ) {
@@ -521,30 +527,42 @@ private fun TranscriptionTextDisplay(
                 Text(
                     text = emptyHint,
                     color = YueCapColors.CaptionPast,
-                    fontSize = 22.sp,
+                    fontSize = captionFontSizeSp.sp,
                     fontWeight = FontWeight.Medium,
-                    lineHeight = 30.sp,
+                    lineHeight = (captionFontSizeSp + 8).sp,
                     modifier = Modifier.semantics { contentDescription = "Caption placeholder" }
                 )
             } else {
                 KaraokeCaptionBlock(
                     pastText = pastText,
                     currentText = currentText,
+                    sizeSp = captionFontSizeSp,
                     contentDescription = if (useTranslatedPrimary) "English caption" else "Source caption"
                 )
             }
         }
-        Surface(
-            onClick = onToggleCantonese,
-            modifier = Modifier.padding(start = 16.dp, bottom = 12.dp),
-            shape = RoundedCornerShape(20.dp),
-            color = YueCapColors.Ink.copy(alpha = 0.55f)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = if (showCantonese) "Hide Cantonese" else "Cantonese",
-                color = YueCapColors.Gold,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.labelSmall
+            Surface(
+                onClick = onToggleCantonese,
+                shape = RoundedCornerShape(20.dp),
+                color = YueCapColors.Ink.copy(alpha = 0.55f)
+            ) {
+                Text(
+                    text = if (showCantonese) "Hide Cantonese" else "Cantonese",
+                    color = YueCapColors.Gold,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+            CaptionFontSizeChooser(
+                selectedSizeSp = captionFontSizeSp,
+                onSizeSelected = onCaptionFontSizeChange
             )
         }
         if (showCantonese) {
@@ -556,11 +574,13 @@ private fun TranscriptionTextDisplay(
             ) {
                 val (cantonesePast, cantoneseCurrent) =
                     splitPastAndCurrent(confirmedText, hypothesisText)
+                // Secondary Cantonese line stays a step smaller than main captions,
+                // but past and current still share one size.
+                val cantoneseSize = (captionFontSizeSp - 6).coerceAtLeast(14)
                 KaraokeCaptionBlock(
                     pastText = cantonesePast,
                     currentText = cantoneseCurrent,
-                    pastSizeSp = 16,
-                    currentSizeSp = 20,
+                    sizeSp = cantoneseSize,
                     emptyFallback = "No Cantonese yet.",
                     contentDescription = "Cantonese caption"
                 )
@@ -572,26 +592,27 @@ private fun TranscriptionTextDisplay(
 /**
  * Progressive caption: already-confirmed / read text is dim; the live hypothesis
  * (or currently arriving segment) is bright — karaoke / floating-caption style.
+ * Past and current share the same font size; contrast is color (and slight weight).
  */
 @Composable
 private fun KaraokeCaptionBlock(
     pastText: String,
     currentText: String,
-    pastSizeSp: Int = 24,
-    currentSizeSp: Int = 36,
+    sizeSp: Int = AppPreferences.DEFAULT_CAPTION_FONT_SIZE_SP,
     emptyFallback: String? = null,
     contentDescription: String
 ) {
     val past = pastText.trim()
     val current = currentText.trim()
     val a11yLabel = contentDescription
+    val lineHeightSp = sizeSp + 10
     if (past.isEmpty() && current.isEmpty()) {
         if (emptyFallback != null) {
             Text(
                 text = emptyFallback,
                 color = YueCapColors.CaptionPast,
-                fontSize = pastSizeSp.sp,
-                lineHeight = (pastSizeSp + 8).sp,
+                fontSize = sizeSp.sp,
+                lineHeight = (sizeSp + 8).sp,
                 modifier = Modifier.semantics { this.contentDescription = a11yLabel }
             )
         }
@@ -605,9 +626,9 @@ private fun KaraokeCaptionBlock(
             Text(
                 text = past,
                 color = YueCapColors.CaptionPast,
-                fontSize = pastSizeSp.sp,
+                fontSize = sizeSp.sp,
                 fontWeight = FontWeight.Medium,
-                lineHeight = (pastSizeSp + 10).sp,
+                lineHeight = lineHeightSp.sp,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -618,11 +639,54 @@ private fun KaraokeCaptionBlock(
             Text(
                 text = current,
                 color = YueCapColors.CaptionCurrent,
-                fontSize = currentSizeSp.sp,
+                fontSize = sizeSp.sp,
                 fontWeight = FontWeight.SemiBold,
-                lineHeight = (currentSizeSp + 12).sp,
+                lineHeight = lineHeightSp.sp,
                 modifier = Modifier.fillMaxWidth()
             )
+        }
+    }
+}
+
+private val captionFontSizeLabels = mapOf(
+    18 to "小",
+    22 to "中",
+    28 to "大",
+    34 to "特大"
+)
+
+@Composable
+private fun CaptionFontSizeChooser(
+    selectedSizeSp: Int,
+    onSizeSelected: (Int) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.semantics { contentDescription = "Caption font size" }
+    ) {
+        Text(
+            text = "字号",
+            color = YueCapColors.Mist,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(end = 2.dp)
+        )
+        AppPreferences.CAPTION_FONT_SIZE_OPTIONS.forEach { sizeSp ->
+            val selected = sizeSp == selectedSizeSp
+            Surface(
+                onClick = { onSizeSelected(sizeSp) },
+                shape = RoundedCornerShape(16.dp),
+                color = if (selected) YueCapColors.Gold.copy(alpha = 0.28f)
+                else YueCapColors.Ink.copy(alpha = 0.45f)
+            ) {
+                Text(
+                    text = captionFontSizeLabels[sizeSp] ?: sizeSp.toString(),
+                    color = if (selected) YueCapColors.Gold else YueCapColors.Mist,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                )
+            }
         }
     }
 }

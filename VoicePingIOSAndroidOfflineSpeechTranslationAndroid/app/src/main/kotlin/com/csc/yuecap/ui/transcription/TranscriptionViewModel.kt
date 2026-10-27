@@ -47,6 +47,7 @@ class TranscriptionViewModel(
     val translationSourceLanguageCode = engine.translationSourceLanguageCode
     val translationTargetLanguageCode = engine.translationTargetLanguageCode
     val ttsRate = engine.ttsRate
+    val captionFontSizeSp = engine.captionFontSizeSp
     val translatedConfirmedText = engine.translatedConfirmedText
     val translatedHypothesisText = engine.translatedHypothesisText
     val translationWarning = engine.translationWarning
@@ -258,6 +259,12 @@ class TranscriptionViewModel(
     fun setTtsRate(rate: Float) {
         launchEngineAction {
             engine.setTtsRate(rate)
+        }
+    }
+
+    fun setCaptionFontSizeSp(sizeSp: Int) {
+        launchEngineAction {
+            engine.setCaptionFontSizeSp(sizeSp)
         }
     }
 

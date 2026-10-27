@@ -32,7 +32,18 @@ class AppPreferences(private val context: Context) {
         private val TRANSLATION_SOURCE_LANGUAGE = stringPreferencesKey("translation_source_language")
         private val TRANSLATION_TARGET_LANGUAGE = stringPreferencesKey("translation_target_language")
         private val TTS_RATE = stringPreferencesKey("tts_rate")
+        private val CAPTION_FONT_SIZE_SP = stringPreferencesKey("caption_font_size_sp")
         private val TRANSLATION_PROVIDER = stringPreferencesKey("translation_provider")
+
+        /** Discrete caption sizes: 小 / 中 / 大 / 特大. Default Medium = 22. */
+        const val DEFAULT_CAPTION_FONT_SIZE_SP = 22
+        val CAPTION_FONT_SIZE_OPTIONS = listOf(18, 22, 28, 34)
+
+        fun normalizeCaptionFontSizeSp(requested: Int?): Int {
+            if (requested == null) return DEFAULT_CAPTION_FONT_SIZE_SP
+            if (requested in CAPTION_FONT_SIZE_OPTIONS) return requested
+            return CAPTION_FONT_SIZE_OPTIONS.minBy { kotlin.math.abs(it - requested) }
+        }
         private val ASR_BASE_URL = stringPreferencesKey("asr_base_url")
         private val ASR_MODE = stringPreferencesKey("asr_mode")
         private val LLM_BASE_URL = stringPreferencesKey("llm_base_url")
@@ -60,6 +71,9 @@ class AppPreferences(private val context: Context) {
     val translationTargetLanguage: Flow<String> = preferenceFlow { DEFAULT_TARGET_LANGUAGE }
     val ttsRate: Flow<Float> = preferenceFlow { prefs ->
         prefs[TTS_RATE]?.toFloatOrNull() ?: 1.0f
+    }
+    val captionFontSizeSp: Flow<Int> = preferenceFlow { prefs ->
+        normalizeCaptionFontSizeSp(prefs[CAPTION_FONT_SIZE_SP]?.toIntOrNull())
     }
     val translationProvider: Flow<String> = preferenceFlow {
         it[TRANSLATION_PROVIDER] ?: TranslationProvider.REMOTE_SPARK_B.name
@@ -114,6 +128,11 @@ class AppPreferences(private val context: Context) {
     suspend fun setTtsRate(rate: Float) {
         val normalized = rate.coerceIn(0.1f, 2.0f)
         context.dataStore.edit { it[TTS_RATE] = normalized.toString() }
+    }
+
+    suspend fun setCaptionFontSizeSp(sizeSp: Int) {
+        val normalized = normalizeCaptionFontSizeSp(sizeSp)
+        context.dataStore.edit { it[CAPTION_FONT_SIZE_SP] = normalized.toString() }
     }
 
     suspend fun setTranslationProvider(provider: String) {

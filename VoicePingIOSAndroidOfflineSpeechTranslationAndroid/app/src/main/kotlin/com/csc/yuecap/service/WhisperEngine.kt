@@ -120,6 +120,9 @@ class WhisperEngine(
     private val _ttsRate = MutableStateFlow(1.0f)
     val ttsRate: StateFlow<Float> = _ttsRate.asStateFlow()
 
+    private val _captionFontSizeSp = MutableStateFlow(AppPreferences.DEFAULT_CAPTION_FONT_SIZE_SP)
+    val captionFontSizeSp: StateFlow<Int> = _captionFontSizeSp.asStateFlow()
+
     private val _translatedConfirmedText = MutableStateFlow("")
     val translatedConfirmedText: StateFlow<String> = _translatedConfirmedText.asStateFlow()
 
@@ -355,6 +358,11 @@ class WhisperEngine(
         scope.launch {
             preferences.ttsRate.collect { rate ->
                 _ttsRate.value = rate
+            }
+        }
+        scope.launch {
+            preferences.captionFontSizeSp.collect { sizeSp ->
+                _captionFontSizeSp.value = sizeSp
             }
         }
         scope.launch {
@@ -693,6 +701,12 @@ class WhisperEngine(
         val normalized = rate.coerceIn(0.25f, 2.0f)
         _ttsRate.value = normalized
         preferences.setTtsRate(normalized)
+    }
+
+    suspend fun setCaptionFontSizeSp(sizeSp: Int) {
+        val normalized = AppPreferences.normalizeCaptionFontSizeSp(sizeSp)
+        _captionFontSizeSp.value = normalized
+        preferences.setCaptionFontSizeSp(normalized)
     }
 
     suspend fun setAsrBaseUrl(url: String) {
