@@ -1114,10 +1114,7 @@ class WhisperEngine(
     }
 
     fun setAudioInputMode(mode: AudioInputMode) {
-        if (mode != AudioInputMode.MICROPHONE) {
-            Log.i("WhisperEngine", "Ignoring $mode; YueCap records from the microphone only")
-        }
-        _audioInputMode.value = AudioInputMode.MICROPHONE
+        _audioInputMode.value = mode
     }
 
     fun setSystemAudioCapturePermission(resultCode: Int, data: Intent?) {

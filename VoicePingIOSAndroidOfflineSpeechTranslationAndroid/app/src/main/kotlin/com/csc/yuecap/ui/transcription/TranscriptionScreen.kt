@@ -150,6 +150,7 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
     val useVAD by viewModel.useVAD.collectAsState()
     val enableTimestamps by viewModel.enableTimestamps.collectAsState()
     val audioInputMode by viewModel.audioInputMode.collectAsState()
+    val systemAudioCaptureReady by viewModel.systemAudioCaptureReady.collectAsState()
     val translationEnabled by viewModel.translationEnabled.collectAsState()
     val speakTranslatedAudio by viewModel.speakTranslatedAudio.collectAsState()
     val translationSourceLanguageCode by viewModel.translationSourceLanguageCode.collectAsState()
@@ -279,7 +280,10 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
             ) {
                 AudioInputModeCard(
                     audioInputMode = audioInputMode,
-                    onInputModeChange = { viewModel.setAudioInputMode(it) }
+                    systemCaptureReady = systemAudioCaptureReady,
+                    systemCaptureSupported = viewModel.isSystemAudioCaptureSupported,
+                    onInputModeChange = { viewModel.setAudioInputMode(it) },
+                    onRequestSystemCapture = { requestSystemAudioCapture() }
                 )
 
                 // Audio visualizer + recording stats (isolated to limit recomposition scope)
@@ -923,7 +927,10 @@ private fun SettingsBottomSheet(
 @Composable
 private fun AudioInputModeCard(
     audioInputMode: AudioInputMode,
+    systemCaptureReady: Boolean,
+    systemCaptureSupported: Boolean,
     onInputModeChange: (AudioInputMode) -> Unit,
+    onRequestSystemCapture: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -948,13 +955,36 @@ private fun AudioInputModeCard(
                 onClick = { onInputModeChange(AudioInputMode.MICROPHONE) },
                 label = { Text("Microphone") }
             )
+            FilterChip(
+                selected = audioInputMode == AudioInputMode.SYSTEM_PLAYBACK,
+                onClick = { onInputModeChange(AudioInputMode.SYSTEM_PLAYBACK) },
+                enabled = systemCaptureSupported,
+                label = { Text("System") }
+            )
         }
-        Text(
-            text = "Mic only",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp)
-        )
+
+        if (audioInputMode == AudioInputMode.SYSTEM_PLAYBACK) {
+            val statusText = when {
+                !systemCaptureSupported -> "System capture requires Android 10+."
+                systemCaptureReady -> "System capture enabled. Other apps' media/game audio can be transcribed."
+                else -> "Enable system capture to transcribe playback audio from other apps."
+            }
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+
+            if (systemCaptureSupported && !systemCaptureReady) {
+                OutlinedButton(
+                    onClick = onRequestSystemCapture,
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Text("Enable System Capture")
+                }
+            }
+        }
     }
 }
 
