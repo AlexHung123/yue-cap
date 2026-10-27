@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -181,6 +182,7 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
     val displayTranslationWarning = remember(translationWarning) { translationWarning?.trim().orEmpty() }
 
     var showSettings by remember { mutableStateOf(false) }
+    var showCaptionPrefs by remember { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
     val scrollState = rememberScrollState()
     val bottomPanelScrollState = rememberScrollState()
@@ -256,7 +258,7 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
                 isRecording = isRecording,
                 errorMessage = lastError?.message,
                 captionFontSizeSp = captionFontSizeSp,
-                onCaptionFontSizeChange = { viewModel.setCaptionFontSizeSp(it) },
+                onOpenCaptionPrefs = { showCaptionPrefs = true },
                 showCantonese = showCantonese,
                 onToggleCantonese = { showCantonese = !showCantonese }
             )
@@ -439,7 +441,15 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
     }
 
     // Settings bottom sheet
-    if (showSettings) {
+    if (showCaptionPrefs) {
+        CaptionPrefsBottomSheet(
+            selectedSizeSp = captionFontSizeSp,
+            onSizeSelected = { viewModel.setCaptionFontSizeSp(it) },
+            onDismiss = { showCaptionPrefs = false }
+        )
+    }
+
+        if (showSettings) {
         SettingsBottomSheet(
             selectedModel = selectedModel,
             useVAD = useVAD,
@@ -481,7 +491,7 @@ private fun TranscriptionTextDisplay(
     isRecording: Boolean,
     errorMessage: String?,
     captionFontSizeSp: Int,
-    onCaptionFontSizeChange: (Int) -> Unit,
+    onOpenCaptionPrefs: () -> Unit,
     showCantonese: Boolean,
     onToggleCantonese: () -> Unit
 ) {
@@ -524,7 +534,8 @@ private fun TranscriptionTextDisplay(
             detail = when (status) {
                 CaptionStatus.Warning -> errorMessage?.takeIf { it.isNotBlank() } ?: translationWarning
                 else -> null
-            }
+            },
+            onOpenCaptionPrefs = onOpenCaptionPrefs
         )
         Column(
             modifier = Modifier
@@ -558,7 +569,7 @@ private fun TranscriptionTextDisplay(
                 .fillMaxWidth()
                 .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.Start
         ) {
             Surface(
                 onClick = onToggleCantonese,
@@ -573,10 +584,6 @@ private fun TranscriptionTextDisplay(
                     style = MaterialTheme.typography.labelSmall
                 )
             }
-            CaptionFontSizeChooser(
-                selectedSizeSp = captionFontSizeSp,
-                onSizeSelected = onCaptionFontSizeChange
-            )
         }
         if (showCantonese) {
             Column(
@@ -669,42 +676,104 @@ private val captionFontSizeLabels = mapOf(
     34 to "特大"
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CaptionFontSizeChooser(
+private fun CaptionPrefsBottomSheet(
     selectedSizeSp: Int,
-    onSizeSelected: (Int) -> Unit
+    onSizeSelected: (Int) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.semantics { contentDescription = "Caption font size" }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val options = AppPreferences.CAPTION_FONT_SIZE_OPTIONS
+    val selectedIndex = options.indexOf(selectedSizeSp).let { if (it >= 0) it else options.indexOf(AppPreferences.DEFAULT_CAPTION_FONT_SIZE_SP) }
+    var sliderIndex by remember(selectedSizeSp) { mutableFloatStateOf(selectedIndex.toFloat()) }
+    val previewSizeSp = options[kotlin.math.round(sliderIndex).toInt().coerceIn(0, options.lastIndex)]
+    val sizeLabel = captionFontSizeLabels[previewSizeSp] ?: previewSizeSp.toString()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = YueCapColors.GlassStrong,
+        contentColor = YueCapColors.Paper,
+        tonalElevation = 0.dp
     ) {
-        Text(
-            text = "字号",
-            color = YueCapColors.Mist,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(end = 2.dp)
-        )
-        AppPreferences.CAPTION_FONT_SIZE_OPTIONS.forEach { sizeSp ->
-            val selected = sizeSp == selectedSizeSp
-            Surface(
-                onClick = { onSizeSelected(sizeSp) },
-                shape = RoundedCornerShape(16.dp),
-                color = if (selected) YueCapColors.Gold.copy(alpha = 0.28f)
-                else YueCapColors.IconChrome,
-                border = BorderStroke(
-                    1.dp,
-                    if (selected) YueCapColors.Gold.copy(alpha = 0.45f) else YueCapColors.Line
-                )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(bottom = 28.dp)
+        ) {
+            Text(
+                text = "字幕偏好設定",
+                style = MaterialTheme.typography.titleMedium,
+                color = YueCapColors.Paper,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 18.dp)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(YueCapColors.CaptionCard)
+                    .border(BorderStroke(1.dp, YueCapColors.Line), RoundedCornerShape(18.dp))
+                    .padding(horizontal = 20.dp, vertical = 28.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = Color.Black.copy(alpha = 0.45f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                ) {
+                    Text(
+                        text = "字幕外觀示例",
+                        color = YueCapColors.CaptionCurrent,
+                        fontSize = previewSizeSp.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = captionFontSizeLabels[sizeSp] ?: sizeSp.toString(),
-                    color = if (selected) YueCapColors.Gold else YueCapColors.Mist,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                    text = "字體大小",
+                    color = YueCapColors.Paper,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = sizeLabel,
+                    color = YueCapColors.Mist,
+                    style = MaterialTheme.typography.bodyLarge
                 )
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Slider(
+                value = sliderIndex,
+                onValueChange = { value ->
+                    val idx = kotlin.math.round(value).toInt().coerceIn(0, options.lastIndex)
+                    sliderIndex = idx.toFloat()
+                    onSizeSelected(options[idx])
+                },
+                valueRange = 0f..options.lastIndex.toFloat(),
+                steps = (options.size - 2).coerceAtLeast(0),
+                colors = SliderDefaults.colors(
+                    thumbColor = YueCapColors.Paper,
+                    activeTrackColor = YueCapColors.Paper,
+                    inactiveTrackColor = YueCapColors.Mist.copy(alpha = 0.35f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Caption font size slider" }
+            )
         }
     }
 }
@@ -759,7 +828,11 @@ private fun captionStatus(
 }
 
 @Composable
-private fun CaptionStatusBar(status: CaptionStatus, detail: String?) {
+private fun CaptionStatusBar(
+    status: CaptionStatus,
+    detail: String?,
+    onOpenCaptionPrefs: () -> Unit
+) {
     val dot = when (status) {
         CaptionStatus.Warning -> YueCapColors.Gold
         CaptionStatus.Translating -> YueCapColors.Gold
@@ -767,28 +840,53 @@ private fun CaptionStatusBar(status: CaptionStatus, detail: String?) {
         CaptionStatus.Listening -> YueCapColors.Ok
         CaptionStatus.Ready -> YueCapColors.Mist
     }
-    Column(modifier = Modifier.padding(horizontal = 22.dp, vertical = 16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(dot)
+                )
+                Text(
+                    text = status.label,
+                    color = YueCapColors.Paper,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+            // Circular "Tt" control — opens caption appearance prefs (floating-app pattern).
+            Surface(
+                onClick = onOpenCaptionPrefs,
                 modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(dot)
-            )
-            Text(
-                text = status.label,
-                color = YueCapColors.Paper,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(start = 8.dp)
-            )
+                    .size(40.dp)
+                    .semantics { contentDescription = "Caption preferences" },
+                shape = CircleShape,
+                color = YueCapColors.IconChrome,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "Tt",
+                        color = YueCapColors.Paper,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
         }
         if (!detail.isNullOrBlank()) {
             Text(
                 text = detail,
                 color = if (status == CaptionStatus.Warning) YueCapColors.Gold else YueCapColors.Mist,
                 fontSize = 14.sp,
-                modifier = Modifier.padding(top = 6.dp)
+                modifier = Modifier.padding(top = 6.dp, start = 6.dp)
             )
         }
     }
