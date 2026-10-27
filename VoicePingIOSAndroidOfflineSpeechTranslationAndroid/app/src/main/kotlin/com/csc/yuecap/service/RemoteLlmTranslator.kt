@@ -64,12 +64,57 @@ class RemoteLlmTranslator(
         val target = targetLang.trim().ifEmpty { AppPreferences.DEFAULT_TARGET_LANGUAGE }
         if (source.equals(target, ignoreCase = true)) return@withContext text
 
+        val content = chatCompletion(
+            systemPrompt = translationSystemPrompt(target),
+            userText = text,
+            maxTokens = 256,
+        )
+        Log.i(TAG, "Spark B translate textLen=${text.length} outLen=${content.length}")
+        content
+    }
+
+    /**
+     * Lightly polish Cantonese ASR then translate to English in one Spark B call.
+     * Returns polished Cantonese plus English. Parse failures fall back to raw
+     * ASR with best-effort English from the model reply.
+     */
+    suspend fun polishAndTranslate(
+        sourceText: String,
+        sourceLang: String,
+        targetLang: String = AppPreferences.DEFAULT_TARGET_LANGUAGE,
+    ): PolishAndTranslateResult = withContext(Dispatchers.IO) {
+        val text = sourceText.trim()
+        if (text.isEmpty()) {
+            return@withContext PolishAndTranslateResult(polishedYue = "", english = "")
+        }
+        val source = sourceLang.trim().ifEmpty { AppPreferences.DEFAULT_SOURCE_LANGUAGE }
+        val target = targetLang.trim().ifEmpty { AppPreferences.DEFAULT_TARGET_LANGUAGE }
+        if (source.equals(target, ignoreCase = true)) {
+            return@withContext PolishAndTranslateResult(polishedYue = text, english = text)
+        }
+
+        val content = chatCompletion(
+            systemPrompt = polishAndTranslateSystemPrompt(target),
+            userText = text,
+            maxTokens = 384,
+        )
+        val parsed = parsePolishAndTranslateContent(content, fallbackYue = text)
+        Log.i(
+            TAG,
+            "Spark B polish+translate textLen=${text.length} " +
+                "yueLen=${parsed.polishedYue.length} enLen=${parsed.english.length}"
+        )
+        parsed
+    }
+
+    private fun chatCompletion(systemPrompt: String, userText: String, maxTokens: Int): String {
         val url = sparkChatCompletionsUrl(baseUrl)
             ?: throw IOException("Spark B URL is not set")
         val body = buildChatCompletionsBody(
             model = model.ifEmpty { DEFAULT_MODEL_NAME },
-            systemPrompt = translationSystemPrompt(target),
-            userText = text
+            systemPrompt = systemPrompt,
+            userText = userText,
+            maxTokens = maxTokens,
         )
         val requestBuilder = Request.Builder()
             .url(url)
@@ -83,9 +128,7 @@ class RemoteLlmTranslator(
                 if (!response.isSuccessful) {
                     throw IOException("Spark B translation failed: HTTP ${response.code}")
                 }
-                val translated = parseChatCompletionContent(raw)
-                Log.i(TAG, "Spark B textLen=${text.length} outLen=${translated.length}")
-                translated
+                return parseChatCompletionContent(raw)
             }
         } catch (e: SocketTimeoutException) {
             throw IOException("Spark B translation timed out", e)
@@ -107,6 +150,11 @@ class RemoteLlmTranslator(
     }
 }
 
+data class PolishAndTranslateResult(
+    val polishedYue: String,
+    val english: String,
+)
+
 internal fun sparkChatCompletionsUrl(baseUrl: String): String? {
     val parsed = baseUrl.trim().toHttpUrlOrNull() ?: return null
     if (parsed.scheme != "http" && parsed.scheme != "https") return null
@@ -125,11 +173,31 @@ internal fun translationSystemPrompt(targetLang: String): String {
         "(product names, acronyms, jargon). Output $target only."
 }
 
-internal fun buildChatCompletionsBody(model: String, systemPrompt: String, userText: String): String {
+internal fun polishAndTranslateSystemPrompt(targetLang: String): String {
+    val target = if (targetLang.equals("en", ignoreCase = true)) "English" else targetLang.trim()
+    return "The input is mostly Cantonese meeting speech from ASR and may include occasional English " +
+        "words (code-switching). " +
+        "1) Lightly correct obvious ASR errors, punctuation, and spacing in the Cantonese. " +
+        "Keep colloquial Cantonese (口語). Do NOT rewrite into written Chinese or Mandarin. " +
+        "Keep existing English terms as-is. Do NOT change meaning. " +
+        "2) Translate the corrected Cantonese into clear concise $target. " +
+        "Keep existing English terms as-is (product names, acronyms, jargon). " +
+        "Reply with ONLY a JSON object, no markdown fences, no extra text: " +
+        """{"yue":"<corrected Cantonese>","en":"<$target>"}"""
+}
+
+internal fun buildChatCompletionsBody(
+    model: String,
+    systemPrompt: String,
+    userText: String,
+    maxTokens: Int = 256,
+): String {
     return buildString {
         append("{\"model\":")
         append(jsonString(model))
-        append(",\"temperature\":0,\"max_tokens\":256,\"messages\":[")
+        append(",\"temperature\":0,\"max_tokens\":")
+        append(maxTokens.coerceIn(64, 1024))
+        append(",\"messages\":[")
         append("{\"role\":\"system\",\"content\":")
         append(jsonString(systemPrompt))
         append("},{\"role\":\"user\",\"content\":")
@@ -142,6 +210,43 @@ internal fun parseChatCompletionContent(body: String): String {
     val choicesAt = body.indexOf("\"choices\"")
     val region = if (choicesAt >= 0) body.substring(choicesAt) else return ""
     return jsonStringField(region, "content")?.trim().orEmpty()
+}
+
+internal fun parsePolishAndTranslateContent(
+    content: String,
+    fallbackYue: String,
+): PolishAndTranslateResult {
+    val trimmed = content.trim()
+    if (trimmed.isEmpty()) {
+        return PolishAndTranslateResult(polishedYue = fallbackYue, english = "")
+    }
+    val jsonRegion = extractJsonObject(trimmed) ?: trimmed
+    val yue = jsonStringField(jsonRegion, "yue")?.trim().orEmpty()
+    val en = jsonStringField(jsonRegion, "en")?.trim().orEmpty()
+    if (yue.isNotEmpty() || en.isNotEmpty()) {
+        return PolishAndTranslateResult(
+            polishedYue = yue.ifEmpty { fallbackYue },
+            english = en,
+        )
+    }
+    // Model ignored JSON — treat whole reply as English, keep raw ASR.
+    return PolishAndTranslateResult(polishedYue = fallbackYue, english = trimmed)
+}
+
+internal fun extractJsonObject(text: String): String? {
+    var body = text.trim()
+    if (body.startsWith("```")) {
+        body = body.removePrefix("```").trim()
+        if (body.startsWith("json", ignoreCase = true)) {
+            body = body.substring(4).trim()
+        }
+        val fenceEnd = body.lastIndexOf("```")
+        if (fenceEnd >= 0) body = body.substring(0, fenceEnd).trim()
+    }
+    val start = body.indexOf('{')
+    val end = body.lastIndexOf('}')
+    if (start < 0 || end <= start) return null
+    return body.substring(start, end + 1)
 }
 
 internal fun jsonString(value: String): String {

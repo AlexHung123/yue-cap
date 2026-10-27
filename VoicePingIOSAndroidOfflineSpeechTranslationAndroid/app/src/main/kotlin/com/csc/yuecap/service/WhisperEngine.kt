@@ -105,6 +105,9 @@ class WhisperEngine(
     private val _translationEnabled = MutableStateFlow(true)
     val translationEnabled: StateFlow<Boolean> = _translationEnabled.asStateFlow()
 
+    private val _cantonesePolishEnabled = MutableStateFlow(true)
+    val cantonesePolishEnabled: StateFlow<Boolean> = _cantonesePolishEnabled.asStateFlow()
+
     private val _speakTranslatedAudio = MutableStateFlow(false)
     val speakTranslatedAudio: StateFlow<Boolean> = _speakTranslatedAudio.asStateFlow()
 
@@ -325,6 +328,14 @@ class WhisperEngine(
                     scheduleTranslationUpdate()
                 } else {
                     resetTranslationState(stopTts = true)
+                }
+            }
+        }
+        scope.launch {
+            preferences.cantonesePolishEnabled.collect { enabled ->
+                if (enabled != _cantonesePolishEnabled.value) {
+                    _cantonesePolishEnabled.value = enabled
+                    scheduleTranslationUpdate()
                 }
             }
         }
@@ -660,6 +671,12 @@ class WhisperEngine(
             prepareTranslationModel()
             scheduleTranslationUpdate()
         }
+    }
+
+    suspend fun setCantonesePolishEnabled(enabled: Boolean) {
+        _cantonesePolishEnabled.value = enabled
+        preferences.setCantonesePolishEnabled(enabled)
+        scheduleTranslationUpdate()
     }
 
     suspend fun setSpeakTranslatedAudio(enabled: Boolean) {
@@ -1555,8 +1572,40 @@ class WhisperEngine(
                 while (isActive) {
                     val confirmed = _confirmedText.value
                     val piece = nextCaptionPiece(sparkBTranslatedSource, confirmed) ?: break
+                    val polishEnabled = _cantonesePolishEnabled.value
                     val english = try {
-                        remoteLlmTranslator.translate(piece.text, sourceLanguageCode, targetLanguageCode)
+                        if (polishEnabled) {
+                            val result = remoteLlmTranslator.polishAndTranslate(
+                                piece.text,
+                                sourceLanguageCode,
+                                targetLanguageCode
+                            )
+                            val polished = TextNormalizationUtils.normalizeText(
+                                result.polishedYue.ifBlank { piece.text }
+                            )
+                            if (polished.isNotBlank()) {
+                                val previous = sparkBTranslatedSource.trim()
+                                val newConfirmed = if (piece.replacesAll || previous.isEmpty()) {
+                                    polished
+                                } else {
+                                    TextNormalizationUtils.normalizeText("$previous $polished")
+                                }
+                                _confirmedText.value = newConfirmed
+                                chunkManager.applyPolishedConfirmedText(newConfirmed)
+                                sparkBTranslatedSource = newConfirmed.trim()
+                            } else {
+                                sparkBTranslatedSource = confirmed.trim()
+                            }
+                            result.english
+                        } else {
+                            val translated = remoteLlmTranslator.translate(
+                                piece.text,
+                                sourceLanguageCode,
+                                targetLanguageCode
+                            )
+                            sparkBTranslatedSource = confirmed.trim()
+                            translated
+                        }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Throwable) {
@@ -1564,7 +1613,6 @@ class WhisperEngine(
                         warning = e.message ?: AppError.TranslationFailed(e).message
                         break
                     }
-                    sparkBTranslatedSource = confirmed.trim()
                     if (english.isBlank()) {
                         warning = "Spark B sent no English"
                         break

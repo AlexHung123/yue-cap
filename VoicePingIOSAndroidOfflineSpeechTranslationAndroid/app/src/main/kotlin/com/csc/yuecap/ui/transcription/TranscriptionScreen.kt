@@ -168,6 +168,7 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
     val audioInputMode by viewModel.audioInputMode.collectAsState()
     val systemAudioCaptureReady by viewModel.systemAudioCaptureReady.collectAsState()
     val translationEnabled by viewModel.translationEnabled.collectAsState()
+    val cantonesePolishEnabled by viewModel.cantonesePolishEnabled.collectAsState()
     val speakTranslatedAudio by viewModel.speakTranslatedAudio.collectAsState()
     val translationSourceLanguageCode by viewModel.translationSourceLanguageCode.collectAsState()
     val translationTargetLanguageCode by viewModel.translationTargetLanguageCode.collectAsState()
@@ -401,6 +402,7 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
             onInputModeChange = { viewModel.setAudioInputMode(it) },
             onRequestSystemCapture = { requestSystemAudioCapture() },
             translationEnabled = translationEnabled,
+            cantonesePolishEnabled = cantonesePolishEnabled,
             speakTranslatedAudio = speakTranslatedAudio,
             translationSourceLanguageCode = translationSourceLanguageCode,
             translationTargetLanguageCode = translationTargetLanguageCode,
@@ -413,6 +415,7 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
             translatedHypothesisText = displayTranslatedHypothesisText,
             translationWarning = displayTranslationWarning,
             onTranslationEnabledChange = { viewModel.setTranslationEnabled(it) },
+            onCantonesePolishEnabledChange = { viewModel.setCantonesePolishEnabled(it) },
             onSpeakTranslatedAudioChange = { viewModel.setSpeakTranslatedAudio(it) },
             onSourceLanguageChange = { viewModel.setTranslationSourceLanguageCode(it) },
             onTargetLanguageChange = { viewModel.setTranslationTargetLanguageCode(it) },
@@ -996,6 +999,7 @@ private fun SettingsBottomSheet(
     onInputModeChange: (AudioInputMode) -> Unit,
     onRequestSystemCapture: () -> Unit,
     translationEnabled: Boolean,
+    cantonesePolishEnabled: Boolean,
     speakTranslatedAudio: Boolean,
     translationSourceLanguageCode: String,
     translationTargetLanguageCode: String,
@@ -1008,6 +1012,7 @@ private fun SettingsBottomSheet(
     translatedHypothesisText: String,
     translationWarning: String,
     onTranslationEnabledChange: (Boolean) -> Unit,
+    onCantonesePolishEnabledChange: (Boolean) -> Unit,
     onSpeakTranslatedAudioChange: (Boolean) -> Unit,
     onSourceLanguageChange: (String) -> Unit,
     onTargetLanguageChange: (String) -> Unit,
@@ -1074,6 +1079,7 @@ private fun SettingsBottomSheet(
             SettingsSection(title = "Caption") {
                 CaptionSettingsContent(
                     translationEnabled = translationEnabled,
+                    cantonesePolishEnabled = cantonesePolishEnabled,
                     speakTranslatedAudio = speakTranslatedAudio,
                     translationSourceLanguageCode = translationSourceLanguageCode,
                     translationTargetLanguageCode = translationTargetLanguageCode,
@@ -1086,6 +1092,7 @@ private fun SettingsBottomSheet(
                     translatedHypothesisText = translatedHypothesisText,
                     translationWarning = translationWarning,
                     onTranslationEnabledChange = onTranslationEnabledChange,
+                    onCantonesePolishEnabledChange = onCantonesePolishEnabledChange,
                     onSpeakTranslatedAudioChange = onSpeakTranslatedAudioChange,
                     onSourceLanguageChange = onSourceLanguageChange,
                     onTargetLanguageChange = onTargetLanguageChange,
@@ -1267,18 +1274,32 @@ private fun SettingsSwitchRow(
     label: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    subtitle: String? = null
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = label,
-            color = if (enabled) YueCapColors.Paper else YueCapColors.Mist,
-            style = MaterialTheme.typography.bodyLarge
-        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp)
+        ) {
+            Text(
+                text = label,
+                color = if (enabled) YueCapColors.Paper else YueCapColors.Mist,
+                style = MaterialTheme.typography.bodyLarge
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    color = YueCapColors.Mist,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
@@ -1389,6 +1410,7 @@ private fun nearestReadingSpeedIndex(rate: Float): Int {
 @Composable
 private fun CaptionSettingsContent(
     translationEnabled: Boolean,
+    cantonesePolishEnabled: Boolean,
     speakTranslatedAudio: Boolean,
     translationSourceLanguageCode: String,
     translationTargetLanguageCode: String,
@@ -1401,6 +1423,7 @@ private fun CaptionSettingsContent(
     translatedHypothesisText: String,
     translationWarning: String,
     onTranslationEnabledChange: (Boolean) -> Unit,
+    onCantonesePolishEnabledChange: (Boolean) -> Unit,
     onSpeakTranslatedAudioChange: (Boolean) -> Unit,
     onSourceLanguageChange: (String) -> Unit,
     onTargetLanguageChange: (String) -> Unit,
@@ -1418,6 +1441,14 @@ private fun CaptionSettingsContent(
         label = "Translate",
         checked = translationEnabled,
         onCheckedChange = onTranslationEnabledChange
+    )
+
+    SettingsSwitchRow(
+        label = "Light polish Cantonese",
+        checked = cantonesePolishEnabled,
+        onCheckedChange = onCantonesePolishEnabledChange,
+        enabled = translationEnabled && translationProvider == TranslationProvider.REMOTE_SPARK_B,
+        subtitle = "Uses Spark B LLM · fixes ASR only, keeps 口語"
     )
 
     SettingsSwitchRow(

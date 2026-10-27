@@ -53,6 +53,7 @@ class AppPreferences(private val context: Context) {
         private val LLM_BASE_URL = stringPreferencesKey("llm_base_url")
         private val LLM_MODEL = stringPreferencesKey("llm_model")
         private val LLM_API_KEY = stringPreferencesKey("llm_api_key")
+        private val CANTONESE_POLISH_ENABLED = booleanPreferencesKey("cantonese_polish_enabled")
     }
 
     private val preferencesData = context.dataStore.data
@@ -91,6 +92,8 @@ class AppPreferences(private val context: Context) {
     val llmModel: Flow<String> = preferenceFlow { it[LLM_MODEL]?.trim().orEmpty() }
     /** Optional Bearer token. LAN servers can leave this empty. */
     val llmApiKey: Flow<String> = preferenceFlow { it[LLM_API_KEY]?.trim().orEmpty() }
+    /** Light ASR polish of Cantonese before Spark B English translation. Default ON. */
+    val cantonesePolishEnabled: Flow<Boolean> = preferenceFlow { it[CANTONESE_POLISH_ENABLED] ?: true }
 
     suspend fun setSelectedModelId(id: String) {
         context.dataStore.edit { it[SELECTED_MODEL_ID] = id }
@@ -168,6 +171,10 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setLlmApiKey(apiKey: String) {
         storeOrRemove(LLM_API_KEY, apiKey.trim())
+    }
+
+    suspend fun setCantonesePolishEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[CANTONESE_POLISH_ENABLED] = enabled }
     }
 
     private suspend fun storeOrRemove(key: Preferences.Key<String>, value: String) {

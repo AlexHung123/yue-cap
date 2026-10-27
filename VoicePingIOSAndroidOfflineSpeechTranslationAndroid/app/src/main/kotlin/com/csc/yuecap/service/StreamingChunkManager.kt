@@ -224,6 +224,18 @@ class StreamingChunkManager(
 
     fun normalizeText(text: String): String = TextNormalizationUtils.normalizeText(text)
 
+    /**
+     * Replace confirmed Cantonese source after Spark B light polish.
+     * Folds within-chunk confirmed segments into completed text so later
+     * chunk joins keep the polished wording.
+     */
+    fun applyPolishedConfirmedText(polished: String) {
+        val normalized = normalizeText(polished)
+        completedChunksText = normalized
+        confirmedSegments.clear()
+        confirmedText = normalized
+    }
+
     data class SliceInfo(
         val startSample: Int,
         val endSample: Int,

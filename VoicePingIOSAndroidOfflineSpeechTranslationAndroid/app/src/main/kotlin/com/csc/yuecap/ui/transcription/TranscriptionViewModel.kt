@@ -43,6 +43,7 @@ class TranscriptionViewModel(
     val isSystemAudioCaptureSupported: Boolean
         get() = engine.isSystemAudioCaptureSupported
     val translationEnabled = engine.translationEnabled
+    val cantonesePolishEnabled = engine.cantonesePolishEnabled
     val speakTranslatedAudio = engine.speakTranslatedAudio
     val translationSourceLanguageCode = engine.translationSourceLanguageCode
     val translationTargetLanguageCode = engine.translationTargetLanguageCode
@@ -235,6 +236,12 @@ class TranscriptionViewModel(
     fun setTranslationEnabled(enabled: Boolean) {
         launchEngineAction {
             engine.setTranslationEnabled(enabled)
+        }
+    }
+
+    fun setCantonesePolishEnabled(enabled: Boolean) {
+        launchEngineAction {
+            engine.setCantonesePolishEnabled(enabled)
         }
     }
 
