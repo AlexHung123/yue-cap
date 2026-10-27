@@ -22,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.ScrollState
@@ -348,7 +347,6 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
                 isRecording = isRecording,
                 canSave = !isRecording && viewModel.fullText.isNotBlank(),
                 onSave = { viewModel.saveTranscription() },
-                onTestAudio = { viewModel.transcribeTestAsset(context) },
                 onRecord = { onRecordClick() },
                 onSettings = { showSettings = true }
             )
@@ -480,15 +478,28 @@ private fun TranscriptionTextDisplay(
         errorMessage = errorMessage,
         translationWarning = translationWarning
     )
-    val english = listOf(translatedConfirmedText, translatedHypothesisText)
-        .filter { it.isNotEmpty() }
-        .joinToString("\n")
+    // Prefer English (translated) as the main karaoke caption; fall back to source text.
+    val useTranslatedPrimary =
+        translationEnabled &&
+            (translatedConfirmedText.isNotEmpty() || translatedHypothesisText.isNotEmpty())
+    val (pastText, currentText) = if (useTranslatedPrimary) {
+        splitPastAndCurrent(translatedConfirmedText, translatedHypothesisText)
+    } else {
+        splitPastAndCurrent(confirmedText, hypothesisText)
+    }
+    val hasAnyCaption = pastText.isNotEmpty() || currentText.isNotEmpty()
+    val emptyHint = if (translationEnabled) {
+        "English captions appear here"
+    } else {
+        "Captions appear here"
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
             .clip(RoundedCornerShape(28.dp))
-            .background(YueCapColors.Panel)
+            .background(YueCapColors.CaptionCard)
     ) {
         CaptionStatusBar(
             status = status,
@@ -502,22 +513,32 @@ private fun TranscriptionTextDisplay(
                 .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(scrollState)
-                .padding(horizontal = 24.dp, vertical = 12.dp)
+                .padding(horizontal = 22.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text(
-                text = english.ifBlank { "English shows up here" },
-                color = if (english.isBlank()) YueCapColors.Mist else YueCapColors.Paper,
-                fontSize = if (english.isBlank()) 28.sp else 64.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = if (english.isBlank()) 36.sp else 76.sp,
-                modifier = Modifier.semantics { contentDescription = "English caption" }
-            )
+            if (!hasAnyCaption) {
+                Text(
+                    text = emptyHint,
+                    color = YueCapColors.CaptionPast,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 30.sp,
+                    modifier = Modifier.semantics { contentDescription = "Caption placeholder" }
+                )
+            } else {
+                KaraokeCaptionBlock(
+                    pastText = pastText,
+                    currentText = currentText,
+                    contentDescription = if (useTranslatedPrimary) "English caption" else "Source caption"
+                )
+            }
         }
         Surface(
             onClick = onToggleCantonese,
             modifier = Modifier.padding(start = 16.dp, bottom = 12.dp),
             shape = RoundedCornerShape(20.dp),
-            color = YueCapColors.Ink
+            color = YueCapColors.Ink.copy(alpha = 0.55f)
         ) {
             Text(
                 text = if (showCantonese) "Hide Cantonese" else "Cantonese",
@@ -527,25 +548,105 @@ private fun TranscriptionTextDisplay(
             )
         }
         if (showCantonese) {
-            Text(
-                text = confirmedText.ifBlank { "No Cantonese yet." },
-                color = YueCapColors.Mist,
-                fontSize = 18.sp,
-                lineHeight = 26.sp,
-                modifier = Modifier.padding(horizontal = 24.dp)
-            )
-            if (hypothesisText.isNotEmpty()) {
-                Text(
-                    text = hypothesisText,
-                    color = YueCapColors.Mist.copy(alpha = 0.75f),
-                    fontSize = 18.sp,
-                    fontStyle = FontStyle.Italic,
-                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 22.dp, end = 22.dp, bottom = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                val (cantonesePast, cantoneseCurrent) =
+                    splitPastAndCurrent(confirmedText, hypothesisText)
+                KaraokeCaptionBlock(
+                    pastText = cantonesePast,
+                    currentText = cantoneseCurrent,
+                    pastSizeSp = 16,
+                    currentSizeSp = 20,
+                    emptyFallback = "No Cantonese yet.",
+                    contentDescription = "Cantonese caption"
                 )
-            } else {
-                Spacer(modifier = Modifier.height(12.dp))
             }
         }
+    }
+}
+
+/**
+ * Progressive caption: already-confirmed / read text is dim; the live hypothesis
+ * (or currently arriving segment) is bright — karaoke / floating-caption style.
+ */
+@Composable
+private fun KaraokeCaptionBlock(
+    pastText: String,
+    currentText: String,
+    pastSizeSp: Int = 24,
+    currentSizeSp: Int = 36,
+    emptyFallback: String? = null,
+    contentDescription: String
+) {
+    val past = pastText.trim()
+    val current = currentText.trim()
+    val a11yLabel = contentDescription
+    if (past.isEmpty() && current.isEmpty()) {
+        if (emptyFallback != null) {
+            Text(
+                text = emptyFallback,
+                color = YueCapColors.CaptionPast,
+                fontSize = pastSizeSp.sp,
+                lineHeight = (pastSizeSp + 8).sp,
+                modifier = Modifier.semantics { this.contentDescription = a11yLabel }
+            )
+        }
+        return
+    }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.semantics { this.contentDescription = a11yLabel }
+    ) {
+        if (past.isNotEmpty()) {
+            Text(
+                text = past,
+                color = YueCapColors.CaptionPast,
+                fontSize = pastSizeSp.sp,
+                fontWeight = FontWeight.Medium,
+                lineHeight = (pastSizeSp + 10).sp,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        if (current.isNotEmpty()) {
+            if (past.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+            Text(
+                text = current,
+                color = YueCapColors.CaptionCurrent,
+                fontSize = currentSizeSp.sp,
+                fontWeight = FontWeight.SemiBold,
+                lineHeight = (currentSizeSp + 12).sp,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+
+/**
+ * Map ASR confirmed + hypothesis into karaoke past/current.
+ * With a live hypothesis, confirmed is past and hypothesis is current.
+ * With only confirmed text, the last line/paragraph stays bright as the focus.
+ */
+private fun splitPastAndCurrent(confirmed: String, hypothesis: String): Pair<String, String> {
+    val hyp = hypothesis.trim()
+    val conf = confirmed.trim()
+    if (hyp.isNotEmpty()) {
+        return conf to hyp
+    }
+    if (conf.isEmpty()) {
+        return "" to ""
+    }
+    val parts = conf.split(Regex("\n+")).map { it.trim() }.filter { it.isNotEmpty() }
+    return if (parts.size <= 1) {
+        "" to conf
+    } else {
+        parts.dropLast(1).joinToString("\n") to parts.last()
     }
 }
 
@@ -616,7 +717,6 @@ private fun ControlButtonsRow(
     isRecording: Boolean,
     canSave: Boolean,
     onSave: () -> Unit,
-    onTestAudio: () -> Unit,
     onRecord: () -> Unit,
     onSettings: () -> Unit
 ) {
@@ -641,29 +741,14 @@ private fun ControlButtonsRow(
             )
         }
 
-        Spacer(modifier = Modifier.width(12.dp))
-
-        IconButton(
-            onClick = onTestAudio,
-            enabled = !isRecording,
-            modifier = Modifier.semantics { contentDescription = "Test Audio File" }
-        ) {
-            Icon(
-                Icons.Filled.AudioFile,
-                contentDescription = null,
-                tint = if (!isRecording) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(24.dp))
 
         RecordButton(
             isRecording = isRecording,
             onClick = onRecord
         )
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(24.dp))
 
         IconButton(
             onClick = onSettings,

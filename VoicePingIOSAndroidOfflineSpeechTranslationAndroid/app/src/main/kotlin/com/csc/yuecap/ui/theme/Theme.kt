@@ -19,6 +19,12 @@ object YueCapColors {
     val Mist = Color(0xFF93A4B5)
     val Danger = Color(0xFFE15D55)
     val Ok = Color(0xFF3DDC97)
+    /** Dark floating-caption card background (reference overlay look). */
+    val CaptionCard = Color(0xE6111822)
+    /** Already-confirmed / already-read caption text (dim). */
+    val CaptionPast = Color(0xFF8B97A5)
+    /** Live hypothesis / currently speaking caption text (bright). */
+    val CaptionCurrent = Color(0xFFF7F4EE)
 }
 
 private val YueCapScheme = darkColorScheme(
