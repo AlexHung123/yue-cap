@@ -874,7 +874,7 @@ private fun CaptionStatusBar(
                     modifier = Modifier.padding(start = 8.dp)
                 )
             }
-            // Circular "Tt" control — opens caption appearance prefs (floating-app pattern).
+            // Circular serif "Tt" control — matches floating-app caption prefs glyph.
             Surface(
                 onClick = onOpenCaptionPrefs,
                 modifier = Modifier
@@ -887,9 +887,11 @@ private fun CaptionStatusBar(
                 Box(contentAlignment = Alignment.Center) {
                     Text(
                         text = "Tt",
-                        color = YueCapColors.Paper,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Normal,
+                        letterSpacing = (-0.5).sp
                     )
                 }
             }
