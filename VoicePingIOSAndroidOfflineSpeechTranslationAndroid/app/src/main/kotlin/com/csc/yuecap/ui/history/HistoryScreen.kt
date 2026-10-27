@@ -1,5 +1,6 @@
 package com.csc.yuecap.ui.history
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -43,7 +44,7 @@ fun HistoryScreen(
                         Text(
                             "Kept captions",
                             style = MaterialTheme.typography.labelSmall,
-                            color = YueCapColors.Gold
+                            color = YueCapColors.Mist
                         )
                     }
                 },
@@ -117,8 +118,9 @@ private fun HistoryItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
-        color = YueCapColors.Panel
+        shape = RoundedCornerShape(20.dp),
+        color = YueCapColors.Glass,
+        border = BorderStroke(1.dp, YueCapColors.Line)
     ) {
         Row(
             modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 14.dp),
@@ -128,7 +130,7 @@ private fun HistoryItem(
                 Text(
                     text = dateFormat.format(Date(record.createdAt)),
                     style = MaterialTheme.typography.labelSmall,
-                    color = YueCapColors.Gold
+                    color = YueCapColors.Mist
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
@@ -144,7 +146,7 @@ private fun HistoryItem(
                             Icons.Filled.GraphicEq,
                             contentDescription = "Has audio",
                             modifier = Modifier.size(14.dp),
-                            tint = YueCapColors.Gold
+                            tint = YueCapColors.Mist
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                     }

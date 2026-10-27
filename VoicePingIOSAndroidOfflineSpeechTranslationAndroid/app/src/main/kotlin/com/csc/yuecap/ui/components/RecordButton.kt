@@ -27,9 +27,18 @@ fun RecordButton(
     modifier: Modifier = Modifier
 ) {
     val fill by animateColorAsState(
-        targetValue = if (isRecording) YueCapColors.Danger else YueCapColors.Gold,
+        targetValue = if (isRecording) YueCapColors.Danger else YueCapColors.IconChrome,
         label = "recordFill"
     )
+    val iconTint by animateColorAsState(
+        targetValue = if (isRecording) YueCapColors.Paper else YueCapColors.Paper,
+        label = "recordIcon"
+    )
+    val border = if (isRecording) {
+        BorderStroke(1.5.dp, Color.White.copy(alpha = 0.22f))
+    } else {
+        BorderStroke(1.5.dp, YueCapColors.Glow.copy(alpha = 0.55f))
+    }
     val desc = if (isRecording) "Stop recording" else "Start recording"
     Surface(
         onClick = onClick,
@@ -38,13 +47,13 @@ fun RecordButton(
             .semantics { contentDescription = desc },
         shape = CircleShape,
         color = fill,
-        border = BorderStroke(2.dp, Color.White.copy(alpha = 0.18f))
+        border = border
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = if (isRecording) Icons.Filled.Stop else Icons.Filled.Mic,
                 contentDescription = null,
-                tint = YueCapColors.Ink,
+                tint = iconTint,
                 modifier = Modifier.size(32.dp)
             )
         }

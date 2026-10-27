@@ -47,7 +47,10 @@ import com.csc.yuecap.service.E2ETestResult
 import com.csc.yuecap.ui.components.AppVersionLabel
 import com.csc.yuecap.ui.components.AudioVisualizer
 import com.csc.yuecap.ui.components.RecordButton
+import com.csc.yuecap.ui.theme.GlassIconButton
+import com.csc.yuecap.ui.theme.GlassPanel
 import com.csc.yuecap.ui.theme.YueCapColors
+import androidx.compose.foundation.BorderStroke
 import com.csc.yuecap.util.FormatUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -225,7 +228,7 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
                         Text(
                             "Cantonese to English",
                             style = MaterialTheme.typography.labelSmall,
-                            color = YueCapColors.Gold
+                            color = YueCapColors.Mist
                         )
                     }
                 },
@@ -263,12 +266,13 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
                 modifier = Modifier
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                color = YueCapColors.Panel
+                shape = RoundedCornerShape(18.dp),
+                color = YueCapColors.Glass,
+                border = BorderStroke(1.dp, YueCapColors.Line)
             ) {
                 Text(
                     text = if (showSessionControls) "Hide setup" else "Setup",
-                    color = YueCapColors.Mist,
+                    color = YueCapColors.Paper,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.labelSmall
                 )
@@ -367,7 +371,10 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
                 TextButton(onClick = { viewModel.dismissSaveConfirmation() }) {
                     Text("OK")
                 }
-            }
+            },
+            containerColor = YueCapColors.GlassStrong,
+            titleContentColor = YueCapColors.Paper,
+            textContentColor = YueCapColors.Mist
         )
     }
 
@@ -424,7 +431,10 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
                         Text("Cancel")
                     }
                 }
-            }
+            },
+            containerColor = YueCapColors.GlassStrong,
+            titleContentColor = YueCapColors.Paper,
+            textContentColor = YueCapColors.Mist
         )
     }
 
@@ -500,13 +510,15 @@ private fun TranscriptionTextDisplay(
         "Captions appear here"
     }
 
-    Column(
+    GlassPanel(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .background(YueCapColors.CaptionCard)
+            .padding(horizontal = 12.dp),
+        corner = 28.dp,
+        glow = true,
+        strong = true
     ) {
+        Column(modifier = Modifier.fillMaxSize()) {
         CaptionStatusBar(
             status = status,
             detail = when (status) {
@@ -551,11 +563,12 @@ private fun TranscriptionTextDisplay(
             Surface(
                 onClick = onToggleCantonese,
                 shape = RoundedCornerShape(20.dp),
-                color = YueCapColors.Ink.copy(alpha = 0.55f)
+                color = YueCapColors.IconChrome,
+                border = BorderStroke(1.dp, YueCapColors.Line)
             ) {
                 Text(
                     text = if (showCantonese) "Hide Cantonese" else "Cantonese",
-                    color = YueCapColors.Gold,
+                    color = YueCapColors.Paper,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.labelSmall
                 )
@@ -585,6 +598,7 @@ private fun TranscriptionTextDisplay(
                     contentDescription = "Cantonese caption"
                 )
             }
+        }
         }
     }
 }
@@ -677,7 +691,11 @@ private fun CaptionFontSizeChooser(
                 onClick = { onSizeSelected(sizeSp) },
                 shape = RoundedCornerShape(16.dp),
                 color = if (selected) YueCapColors.Gold.copy(alpha = 0.28f)
-                else YueCapColors.Ink.copy(alpha = 0.45f)
+                else YueCapColors.IconChrome,
+                border = BorderStroke(
+                    1.dp,
+                    if (selected) YueCapColors.Gold.copy(alpha = 0.45f) else YueCapColors.Line
+                )
             ) {
                 Text(
                     text = captionFontSizeLabels[sizeSp] ?: sizeSp.toString(),
@@ -788,42 +806,33 @@ private fun ControlButtonsRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(YueCapColors.Ink)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(
+        GlassIconButton(
             onClick = onSave,
+            imageVector = Icons.Filled.Save,
+            contentDescription = "Save",
             enabled = canSave,
-            modifier = Modifier.semantics { contentDescription = "Save" }
-        ) {
-            Icon(
-                Icons.Filled.Save,
-                contentDescription = null,
-                tint = if (canSave) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-            )
-        }
+            tint = if (canSave) YueCapColors.Paper else YueCapColors.Mist
+        )
 
-        Spacer(modifier = Modifier.width(24.dp))
+        Spacer(modifier = Modifier.width(28.dp))
 
         RecordButton(
             isRecording = isRecording,
             onClick = onRecord
         )
 
-        Spacer(modifier = Modifier.width(24.dp))
+        Spacer(modifier = Modifier.width(28.dp))
 
-        IconButton(
+        GlassIconButton(
             onClick = onSettings,
-            modifier = Modifier.semantics { contentDescription = "Settings" }
-        ) {
-            Icon(
-                Icons.Filled.Settings,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+            imageVector = Icons.Filled.Settings,
+            contentDescription = "Settings",
+            tint = YueCapColors.Paper
+        )
     }
 }
 
@@ -872,8 +881,9 @@ private fun SettingsBottomSheet(
     ModalBottomSheet(
         onDismissRequest = saveAndDismiss,
         sheetState = sheetState,
-        containerColor = YueCapColors.InkRaised,
-        contentColor = YueCapColors.Paper
+        containerColor = YueCapColors.GlassStrong,
+        contentColor = YueCapColors.Paper,
+        tonalElevation = 0.dp
     ) {
         Column(
             modifier = Modifier
@@ -883,6 +893,7 @@ private fun SettingsBottomSheet(
             Text(
                 text = "Settings",
                 style = MaterialTheme.typography.titleLarge,
+                color = YueCapColors.Paper,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
@@ -1081,17 +1092,21 @@ private fun AudioInputModeCard(
     onInputModeChange: (AudioInputMode) -> Unit,
     onRequestSystemCapture: () -> Unit
 ) {
+    GlassPanel(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        corner = 18.dp
+    ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
             .padding(12.dp)
     ) {
         Text(
             text = "Input",
-            style = MaterialTheme.typography.titleSmall
+            style = MaterialTheme.typography.titleSmall,
+            color = YueCapColors.Paper
         )
         Row(
             modifier = Modifier
@@ -1135,6 +1150,7 @@ private fun AudioInputModeCard(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -1164,17 +1180,21 @@ private fun HomeLanguageSpeechCard(
             .joinToString(" ")
     }
 
+    GlassPanel(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        corner = 18.dp
+    ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
             .padding(12.dp)
     ) {
         Text(
             text = "Caption",
-            style = MaterialTheme.typography.titleSmall
+            style = MaterialTheme.typography.titleSmall,
+            color = YueCapColors.Paper
         )
 
         Row(
@@ -1342,6 +1362,7 @@ private fun HomeLanguageSpeechCard(
                 modifier = Modifier.padding(top = 6.dp)
             )
         }
+    }
     }
 }
 

@@ -1,6 +1,7 @@
 package com.csc.yuecap.ui.history
 
 import android.content.Intent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -154,7 +155,8 @@ fun HistoryDetailScreen(
 
             Surface(
                 shape = RoundedCornerShape(20.dp),
-                color = YueCapColors.Panel
+                color = YueCapColors.Glass,
+                border = BorderStroke(1.dp, YueCapColors.Line)
             ) {
                 Text(
                     text = record.modelUsed,
@@ -185,7 +187,8 @@ fun HistoryDetailScreen(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),
-                color = YueCapColors.Panel
+                color = YueCapColors.Glass,
+                border = BorderStroke(1.dp, YueCapColors.Line)
             ) {
                 SelectionContainer {
                     Text(
