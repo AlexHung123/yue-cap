@@ -53,7 +53,7 @@ class AppPreferences(private val context: Context) {
     val useVAD: Flow<Boolean> = preferenceFlow { it[USE_VAD] ?: true }
     val enableTimestamps: Flow<Boolean> = preferenceFlow { it[ENABLE_TIMESTAMPS] ?: true }
     val translationEnabled: Flow<Boolean> = preferenceFlow { it[TRANSLATION_ENABLED] ?: true }
-    val speakTranslatedAudio: Flow<Boolean> = preferenceFlow { it[SPEAK_TRANSLATED_AUDIO] ?: true }
+    val speakTranslatedAudio: Flow<Boolean> = preferenceFlow { it[SPEAK_TRANSLATED_AUDIO] ?: false }
     val translationSourceLanguage: Flow<String> = preferenceFlow {
         it[TRANSLATION_SOURCE_LANGUAGE] ?: DEFAULT_SOURCE_LANGUAGE
     }

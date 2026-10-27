@@ -105,7 +105,7 @@ class WhisperEngine(
     private val _translationEnabled = MutableStateFlow(true)
     val translationEnabled: StateFlow<Boolean> = _translationEnabled.asStateFlow()
 
-    private val _speakTranslatedAudio = MutableStateFlow(true)
+    private val _speakTranslatedAudio = MutableStateFlow(false)
     val speakTranslatedAudio: StateFlow<Boolean> = _speakTranslatedAudio.asStateFlow()
 
     private val _translationSourceLanguageCode = MutableStateFlow(AppPreferences.DEFAULT_SOURCE_LANGUAGE)
@@ -246,6 +246,12 @@ class WhisperEngine(
     internal fun updateTokensPerSecond(value: Double) { _tokensPerSecond.value = value }
     internal fun updateBufferEnergy(energy: List<Float>) { _bufferEnergy.value = energy }
     internal fun updateBufferSeconds(seconds: Double) { _bufferSeconds.value = seconds }
+
+    /** Soft warning for a failed chunk; does not stop Live recording. */
+    internal fun setTranslationWarningTransient(message: String) {
+        _translationWarning.value = message
+        _lastError.value = null
+    }
 
     internal fun onTranscriptionError(error: AppError) {
         _lastError.value = error
@@ -1016,17 +1022,18 @@ class WhisperEngine(
             return
         }
 
+        // Keep confirmed/translated captions across TTS pauses so Live can
+        // continue a meeting stream instead of wiping after each utterance.
+        // Only reset the mic/chunk buffers for a clean next audio window.
         transcriptionCoordinator.reset()
         chunkManager.reset()
+        // Re-seed chunk manager with already-confirmed caption text so Spark B
+        // delta translation still tracks the full session.
+        chunkManager.confirmedText = _confirmedText.value
         audioRecorder.reset()
-        _confirmedText.value = ""
         _hypothesisText.value = ""
-        _translatedConfirmedText.value = ""
         _translatedHypothesisText.value = ""
-        lastTranslationInput = null
-        lastSpokenTranslatedConfirmed = ""
-        sparkBTranslatedSource = ""
-        Log.e("InterpLoop", "resumeRecordingAfterTts: cleared text state for fresh segment")
+        Log.e("InterpLoop", "resumeRecordingAfterTts: kept captions, reset audio buffers only")
 
         if (_audioInputMode.value == AudioInputMode.SYSTEM_PLAYBACK) {
             try {

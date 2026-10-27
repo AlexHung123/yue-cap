@@ -98,8 +98,11 @@ class TranscriptionCoordinator(
                     throw e
                 } catch (e: Throwable) {
                     if (!engine.isSessionActive(sessionToken)) return
-                    engine.onTranscriptionError(AppError.TranscriptionFailed(e))
-                    return
+                    // Keep Live running for continuous captions: one bad chunk
+                    // (LAN blip, empty remote reply) should not end the session.
+                    Log.w("TranscriptionCoordinator", "realtimeLoop chunk failed, continuing: ${e.message}", e)
+                    engine.setTranslationWarningTransient(e.message ?: AppError.TranscriptionFailed(e).message)
+                    delay(200)
                 }
             }
         } finally {
