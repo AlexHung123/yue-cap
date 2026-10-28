@@ -565,8 +565,11 @@ private fun TranscriptionTextDisplay(
  * Progressive caption: already-confirmed / read text is dim; the live hypothesis
  * (or currently arriving segment) is bright — karaoke / floating-caption style.
  * Past and current share the same font size; contrast is color (and slight weight).
- * When [typewriter] is true, only the newest segment reveals character-by-character;
- * history stays put. Mid-type updates cancel and restart (or continue on a prefix extension).
+ *
+ * Typewriter is **append-only on the full caption** (past + current). Already-shown
+ * characters stay; only a new trailing suffix animates. Moving the last sentence into
+ * gray "past" must not retype it. Mid-string polish snaps to the common prefix and
+ * types only the revised suffix — never replays history from char 0.
  */
 @Composable
 private fun KaraokeCaptionBlock(
@@ -582,50 +585,40 @@ private fun KaraokeCaptionBlock(
     val current = currentText.trim()
     val a11yLabel = contentDescription
     val lineHeightSp = sizeSp + 10
-    var displayedCurrent by remember { mutableStateOf("") }
+    val fullTarget = joinCaptionPastCurrent(past, current)
+    var displayedFull by remember { mutableStateOf("") }
 
-    LaunchedEffect(current, typewriter) {
+    LaunchedEffect(fullTarget, typewriter) {
         if (!typewriter) {
-            displayedCurrent = current
+            displayedFull = fullTarget
             return@LaunchedEffect
         }
-        if (current.isEmpty()) {
-            displayedCurrent = ""
+        if (fullTarget.isEmpty()) {
+            displayedFull = ""
             return@LaunchedEffect
         }
-        // Continue typing if the target grew with the same prefix; otherwise retype cleanly.
+        // Forward-only: extend when target grows; on mid-string revise, keep common prefix.
         val startIndex = when {
-            current.startsWith(displayedCurrent) -> displayedCurrent.length
-            else -> {
-                val overlap = displayedCurrent.commonPrefixWith(current).length
-                // Keep a useful overlap only when most of what was shown still matches
-                // (polish/replace of the same segment); otherwise start over to avoid flicker spam.
-                if (overlap >= 8 || (displayedCurrent.isNotEmpty() && overlap * 2 >= displayedCurrent.length)) {
-                    overlap
-                } else {
-                    0
-                }
-            }
+            fullTarget.startsWith(displayedFull) -> displayedFull.length
+            else -> displayedFull.commonPrefixWith(fullTarget).length
         }
-        if (startIndex == 0) {
-            displayedCurrent = ""
-        } else if (startIndex < displayedCurrent.length) {
-            displayedCurrent = current.take(startIndex)
+        if (startIndex < displayedFull.length) {
+            displayedFull = fullTarget.take(startIndex)
         }
-        if (startIndex >= current.length) {
-            displayedCurrent = current
+        if (startIndex >= fullTarget.length) {
+            displayedFull = fullTarget
             return@LaunchedEffect
         }
         val delayMs = 1000L / TYPEWRITER_CHARS_PER_SECOND
-        for (i in (startIndex + 1)..current.length) {
-            displayedCurrent = current.take(i)
+        for (i in (startIndex + 1)..fullTarget.length) {
+            displayedFull = fullTarget.take(i)
             scrollState?.scrollTo(scrollState.maxValue)
             delay(delayMs)
         }
     }
 
     // Keep the typing end visible even when scrollState is null (parent scroll keys).
-    LaunchedEffect(displayedCurrent, past) {
+    LaunchedEffect(displayedFull, past) {
         scrollState?.scrollTo(scrollState.maxValue)
     }
 
@@ -641,14 +634,20 @@ private fun KaraokeCaptionBlock(
         }
         return
     }
-    val shownCurrent = if (typewriter) displayedCurrent else current
+
+    val (shownPast, shownCurrent) = if (typewriter) {
+        splitDisplayedCaption(past, current, displayedFull)
+    } else {
+        past to current
+    }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.semantics { this.contentDescription = a11yLabel }
     ) {
-        if (past.isNotEmpty()) {
+        if (shownPast.isNotEmpty()) {
             Text(
-                text = past,
+                text = shownPast,
                 color = YueCapColors.CaptionPast,
                 fontSize = sizeSp.sp,
                 fontWeight = FontWeight.Medium,
@@ -657,7 +656,7 @@ private fun KaraokeCaptionBlock(
             )
         }
         if (shownCurrent.isNotEmpty()) {
-            if (past.isNotEmpty()) {
+            if (shownPast.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(10.dp))
             }
             Text(
@@ -670,6 +669,35 @@ private fun KaraokeCaptionBlock(
             )
         }
     }
+}
+
+/** Join karaoke past/current the same way typewriter and display split them. */
+private fun joinCaptionPastCurrent(past: String, current: String): String = when {
+    past.isEmpty() -> current
+    current.isEmpty() -> past
+    else -> "$past\n$current"
+}
+
+/**
+ * Map an append-only [displayedFull] cursor back onto gray past / bright current.
+ * Characters already revealed in the past region stay past (never re-animated as current).
+ */
+private fun splitDisplayedCaption(
+    past: String,
+    current: String,
+    displayedFull: String
+): Pair<String, String> {
+    if (displayedFull.isEmpty()) return "" to ""
+    if (past.isEmpty()) return "" to displayedFull
+    if (current.isEmpty()) return displayedFull to ""
+    // fullTarget = past + "\n" + current
+    if (displayedFull.length <= past.length) {
+        return displayedFull to ""
+    }
+    val afterPast = displayedFull.drop(past.length)
+    // Drop the joining newline once the cursor has crossed it.
+    val shownCurrent = if (afterPast.startsWith("\n")) afterPast.drop(1) else afterPast
+    return past to shownCurrent
 }
 
 /** Reveal speed for the live English caption segment (~40 chars/sec). */
