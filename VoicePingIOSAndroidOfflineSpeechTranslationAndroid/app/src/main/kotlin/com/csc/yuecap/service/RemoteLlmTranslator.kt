@@ -176,14 +176,14 @@ internal fun translationSystemPrompt(targetLang: String): String {
 internal fun polishAndTranslateSystemPrompt(targetLang: String): String {
     val target = if (targetLang.equals("en", ignoreCase = true)) "English" else targetLang.trim()
     return "The input is mostly Cantonese meeting speech from ASR and may include occasional English " +
-        "words (code-switching). " +
-        "1) Lightly correct obvious ASR errors, punctuation, and spacing in the Cantonese. " +
+        "words (code-switching). Do the work in this exact order: " +
+        "FIRST revise the ASR text — fix typos, misheard characters, wrong words, punctuation, and spacing. " +
         "Keep colloquial Cantonese (口語). Do NOT rewrite into written Chinese or Mandarin. " +
-        "Keep existing English terms as-is. Do NOT change meaning. " +
-        "2) Translate the corrected Cantonese into clear concise $target. " +
+        "Keep existing English terms as-is. Do NOT change meaning or invent content. " +
+        "THEN finally translate that revised Cantonese into clear concise $target. " +
         "Keep existing English terms as-is (product names, acronyms, jargon). " +
         "Reply with ONLY a JSON object, no markdown fences, no extra text: " +
-        """{"yue":"<corrected Cantonese>","en":"<$target>"}"""
+        """{"yue":"<revised Cantonese>","en":"<$target>"}"""
 }
 
 internal fun buildChatCompletionsBody(

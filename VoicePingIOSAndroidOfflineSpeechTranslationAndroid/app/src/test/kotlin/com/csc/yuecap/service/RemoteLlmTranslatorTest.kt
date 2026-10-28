@@ -44,6 +44,8 @@ class RemoteLlmTranslatorTest {
         assertTrue(prompt.contains("\"yue\""))
         assertTrue(prompt.contains("\"en\""))
         assertTrue(prompt.contains("Do NOT rewrite into written Chinese or Mandarin"))
+        assertTrue(prompt.contains("FIRST revise the ASR text"))
+        assertTrue(prompt.contains("THEN finally translate"))
     }
 
     @Test
