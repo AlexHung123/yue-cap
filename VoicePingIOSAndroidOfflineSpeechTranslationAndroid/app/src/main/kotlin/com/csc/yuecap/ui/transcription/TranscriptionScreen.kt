@@ -597,18 +597,18 @@ private fun KaraokeCaptionBlock(
             displayedFull = ""
             return@LaunchedEffect
         }
-        // Forward-only: extend when target grows; on mid-string revise, keep common prefix.
-        val startIndex = when {
-            fullTarget.startsWith(displayedFull) -> displayedFull.length
-            else -> displayedFull.commonPrefixWith(fullTarget).length
+        // Animate only true appends. Mid-utterance ASR revise (common in 2025 SenseVoice
+        // without punctuation) snaps to the new text — never retype from an earlier char.
+        if (!fullTarget.startsWith(displayedFull)) {
+            displayedFull = fullTarget
+            scrollState?.scrollTo(scrollState.maxValue)
+            return@LaunchedEffect
         }
-        if (startIndex < displayedFull.length) {
-            displayedFull = fullTarget.take(startIndex)
-        }
-        if (startIndex >= fullTarget.length) {
+        if (displayedFull.length >= fullTarget.length) {
             displayedFull = fullTarget
             return@LaunchedEffect
         }
+        val startIndex = displayedFull.length
         val delayMs = 1000L / TYPEWRITER_CHARS_PER_SECOND
         for (i in (startIndex + 1)..fullTarget.length) {
             displayedFull = fullTarget.take(i)
