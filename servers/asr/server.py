@@ -1,41 +1,55 @@
-"""Spark A — SenseVoice ASR for YueCap (POST /v1/asr, raw audio/wav body)."""
+"""Spark A — SenseVoice ASR for YueCap (POST /v1/asr, raw audio/wav body).
+
+Loads the FunASR PyTorch checkpoint sensevoice_small_yue from Hugging Face
+(ASLP-lab/WSYue-ASR). Weights are never fetched from ModelScope.
+"""
 from __future__ import annotations
 
 import io
 import os
-import tarfile
-import urllib.request
+import re
+import threading
 import wave
 from pathlib import Path
 
 import numpy as np
-import sherpa_onnx
 import uvicorn
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import JSONResponse
+from funasr import AutoModel
+from opencc import OpenCC
 
 # Cantonese fine-tune of SenseVoice Small (WenetSpeech-Yue, ~21.8k hours).
 # This process runs on the Spark A M3 Ultra, not on the dev machine.
 # The checkpoint does not emit punctuation; Spark B adds it when polishing.
-MODEL_NAME = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
-MODEL_URL = (
-    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
-    f"{MODEL_NAME}.tar.bz2"
+REPO_ID = "ASLP-lab/WSYue-ASR"
+MODEL_SUBDIR = "sensevoice_small_yue"
+MODEL_NAME = MODEL_SUBDIR
+REQUIRED_FILES = (
+    "model.pt",
+    "config.yaml",
+    "configuration.json",
+    "am.mvn",
+    "chn_jpn_yue_eng_ko_spectok.bpe.model",
 )
 MODEL_DIR = Path(
     os.environ.get(
         "SENSEVOICE_DIR",
-        str(Path(__file__).resolve().parent / "models" / MODEL_NAME),
+        str(Path(__file__).resolve().parent / "models" / MODEL_SUBDIR),
     )
 )
 NUM_THREADS = int(os.environ.get("ASR_THREADS", "4"))
 HOST = os.environ.get("ASR_HOST", "0.0.0.0")
-PORT = int(os.environ.get("ASR_PORT", "8005"))
+PORT = int(os.environ.get("ASR_PORT", "8006"))
+# CPU is the reliable default. SANM attention in this checkpoint is not
+# dependable on MPS. Set ASR_DEVICE=mps or ASR_DEVICE=cuda to override.
+DEVICE = os.environ.get("ASR_DEVICE", "cpu")
 
 ALLOWED_LANG = {"auto", "zh", "en", "yue", "ja", "ko", "nospeech"}
 # SenseVoice event tags that are not someone talking. A forced language=yue
 # still transcribes these, which shows up as captions during a break or a
-# music bed. Empty event means this sherpa build did not report one.
+# music bed. FunASR puts the event in the text as <|BGM|>, <|Applause|>, and
+# so on. An empty event means the result did not report one.
 NON_SPEECH_EVENTS = {
     "bgm",
     "music",
@@ -48,74 +62,86 @@ NON_SPEECH_EVENTS = {
     "cough",
     "nospeech",
 }
+# SenseVoice emits simplified characters. YueCap captions use Hong Kong
+# traditional (s2hk): character conversion plus HK variants, English left as-is.
+_TAG = re.compile(r"<\|([^|>]*)\|>")
+_to_traditional = OpenCC("s2hk")
+_infer_lock = threading.Lock()
 
 
-def ensure_model(model_dir: Path) -> tuple[Path, Path]:
-    """Download and extract SenseVoice weights if model.int8.onnx / tokens.txt are missing."""
-    model_path = model_dir / "model.int8.onnx"
-    tokens_path = model_dir / "tokens.txt"
-    if model_path.is_file() and tokens_path.is_file():
-        return model_path, tokens_path
-
-    models_root = model_dir.parent
-    models_root.mkdir(parents=True, exist_ok=True)
-    archive = models_root / f"{MODEL_NAME}.tar.bz2"
-
-    print(f"[asr] SenseVoice model missing under {model_dir}")
-    print(f"[asr] Downloading {MODEL_URL}")
-    print("[asr] This is ~200MB+ and may take a few minutes…")
-
-    def _progress(block_num: int, block_size: int, total_size: int) -> None:
-        if total_size <= 0:
-            return
-        done = block_num * block_size
-        pct = min(100.0, done * 100.0 / total_size)
-        if block_num % 50 == 0 or done >= total_size:
-            print(f"\r[asr] download {pct:5.1f}%", end="", flush=True)
-
-    urllib.request.urlretrieve(MODEL_URL, archive, reporthook=_progress)
-    print()
-    print(f"[asr] Extracting {archive.name} → {models_root}")
-    with tarfile.open(archive, "r:bz2") as tar:
-        tar.extractall(path=models_root)
-
-    # Keep archive optional; delete to save disk.
-    try:
-        archive.unlink(missing_ok=True)
-    except OSError:
-        pass
-
-    if not model_path.is_file() or not tokens_path.is_file():
-        raise SystemExit(
-            f"Download finished but files still missing:\n"
-            f"  {model_path}\n  {tokens_path}"
-        )
-    print("[asr] Model ready.")
-    return model_path, tokens_path
+def _ready(model_dir: Path) -> bool:
+    return all((model_dir / name).is_file() for name in REQUIRED_FILES)
 
 
-_model, _tokens = ensure_model(MODEL_DIR)
-print(f"[asr] Loading {_model}")
-# YueCap is Cantonese-first. Never use language="auto" — SenseVoice then
-# frequently mis-tags Cantonese as Japanese (ja) or Mandarin (zh).
-recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-    model=str(_model),
-    tokens=str(_tokens),
-    use_itn=True,
-    language="yue",
-    num_threads=NUM_THREADS,
+def ensure_model(model_dir: Path) -> Path:
+    """Return a directory of Hugging Face sensevoice_small_yue weights.
+
+    Downloads only that subdirectory from ASLP-lab/WSYue-ASR. The sibling
+    WenetSpeech-Yue checkpoints in the same repo are not fetched.
+    """
+    if _ready(model_dir):
+        return model_dir
+    nested = model_dir / MODEL_SUBDIR
+    if _ready(nested):
+        return nested
+
+    model_dir.mkdir(parents=True, exist_ok=True)
+    # snapshot_download keeps the repo-relative path, so the files land in
+    # <local_dir>/sensevoice_small_yue/. Point local_dir at the parent when
+    # MODEL_DIR already uses that folder name.
+    local_dir = model_dir.parent if model_dir.name == MODEL_SUBDIR else model_dir
+    local_dir.mkdir(parents=True, exist_ok=True)
+
+    from huggingface_hub import snapshot_download
+
+    print(f"[asr] SenseVoice weights missing under {model_dir}")
+    print(f"[asr] Downloading {MODEL_SUBDIR} from https://huggingface.co/{REPO_ID}")
+    print("[asr] model.pt is about 2.8GB and may take a while…")
+    snapshot_download(
+        repo_id=REPO_ID,
+        revision="main",
+        allow_patterns=[f"{MODEL_SUBDIR}/{name}" for name in REQUIRED_FILES],
+        local_dir=str(local_dir),
+    )
+
+    if _ready(model_dir):
+        print("[asr] Model ready.")
+        return model_dir
+    if _ready(nested):
+        print("[asr] Model ready.")
+        return nested
+    missing = [name for name in REQUIRED_FILES if not (model_dir / name).is_file()]
+    raise SystemExit(
+        "Download finished but sensevoice_small_yue files are still missing:\n  "
+        + "\n  ".join(str(model_dir / name) for name in missing)
+    )
+
+
+_model_dir = ensure_model(MODEL_DIR)
+print(f"[asr] Loading {_model_dir} on {DEVICE}")
+# hub=hf plus a local directory: FunASR reads config.yaml here and does not
+# call ModelScope. Language stays yue for every request below.
+recognizer = AutoModel(
+    model=str(_model_dir),
+    hub="hf",
+    device=DEVICE,
+    ncpu=NUM_THREADS,
+    disable_update=True,
+    disable_pbar=True,
+    check_latest=False,
 )
 
 app = FastAPI(title="YueCap Spark A — SenseVoice ASR")
 
 
-def transcript_for_result(result: object) -> tuple[str, str]:
-    """Return (text, event). Non-speech events become an empty transcript."""
-    event = str(getattr(result, "event", "") or "").strip()
-    text = str(getattr(result, "text", "") or "").strip()
-    if event.lower() in NON_SPEECH_EVENTS:
+def transcript_from_raw(raw: str) -> tuple[str, str]:
+    """Return (traditional text, event). Non-speech events become empty text."""
+    tags = [tag.strip().lower() for tag in _TAG.findall(raw)]
+    event = next((tag for tag in tags if tag in NON_SPEECH_EVENTS or tag == "speech"), "")
+    if event in NON_SPEECH_EVENTS:
         return "", event
-    return text, event
+    text = _TAG.sub("", raw).strip()
+    return _to_traditional.convert(text), event
 
 
 def wav_bytes_to_float32(data: bytes) -> tuple[np.ndarray, int]:
@@ -129,12 +155,34 @@ def wav_bytes_to_float32(data: bytes) -> tuple[np.ndarray, int]:
     audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
     if channels > 1:
         audio = audio.reshape(-1, channels).mean(axis=1)
-    return audio, sample_rate
+    return np.ascontiguousarray(audio, dtype=np.float32), sample_rate
+
+
+def transcribe(samples: np.ndarray, sample_rate: int) -> tuple[str, str]:
+    if samples.size == 0:
+        return "", ""
+    with _infer_lock:
+        result = recognizer.generate(
+            input=samples,
+            fs=sample_rate,
+            language="yue",
+            use_itn=True,
+            disable_pbar=True,
+        )
+    if not result:
+        return "", ""
+    return transcript_from_raw(str(result[0].get("text") or ""))
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "model": MODEL_NAME, "language": "yue"}
+    return {
+        "ok": True,
+        "model": MODEL_NAME,
+        "language": "yue",
+        "script": "hk-traditional",
+        "device": DEVICE,
+    }
 
 
 @app.post("/v1/asr")
@@ -157,10 +205,7 @@ async def asr(
         requested = "yue"
     lang = "yue"
 
-    stream = recognizer.create_stream()
-    stream.accept_waveform(sample_rate, samples)
-    recognizer.decode_stream(stream)
-    text, event = transcript_for_result(stream.result)
+    text, event = transcribe(samples, sample_rate)
     if event and not text:
         print(f"[asr] drop non-speech event={event}")
     return JSONResponse(
