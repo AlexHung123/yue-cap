@@ -195,6 +195,7 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
     var showCaptionPrefs by remember { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
     val scrollState = rememberScrollState()
+    val cantoneseScrollState = rememberScrollState()
     var showCantonese by remember { mutableStateOf(false) }
 
     // Elapsed recording timer — based on wall clock, not accumulated delays
@@ -220,6 +221,18 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
     ) {
         if (isRecording || displayTranslatedConfirmedText.isNotEmpty() || displayConfirmedText.isNotEmpty()) {
             scrollState.scrollTo(scrollState.maxValue)
+        }
+    }
+
+    // Keep Cantonese panel pinned to the latest line while it is open.
+    LaunchedEffect(
+        showCantonese,
+        displayConfirmedText,
+        displayHypothesisText,
+        isRecording
+    ) {
+        if (showCantonese && (isRecording || displayConfirmedText.isNotEmpty() || displayHypothesisText.isNotEmpty())) {
+            cantoneseScrollState.scrollTo(cantoneseScrollState.maxValue)
         }
     }
 
@@ -257,6 +270,7 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
             TranscriptionTextDisplay(
                 modifier = Modifier.weight(1f),
                 scrollState = scrollState,
+                cantoneseScrollState = cantoneseScrollState,
                 confirmedText = displayConfirmedText,
                 hypothesisText = displayHypothesisText,
                 translationEnabled = translationEnabled,
@@ -428,6 +442,7 @@ fun TranscriptionScreen(viewModel: TranscriptionViewModel) {
 private fun TranscriptionTextDisplay(
     modifier: Modifier = Modifier,
     scrollState: ScrollState,
+    cantoneseScrollState: ScrollState,
     confirmedText: String,
     hypothesisText: String,
     translationEnabled: Boolean,
@@ -536,9 +551,13 @@ private fun TranscriptionTextDisplay(
             }
         }
         if (showCantonese) {
+            // Own weighted scroll pane — previously this sat outside the English
+            // verticalScroll and had no height/scroll, so long Yue text could not scroll.
             Column(
                 modifier = Modifier
+                    .weight(1f)
                     .fillMaxWidth()
+                    .verticalScroll(cantoneseScrollState)
                     .padding(start = 22.dp, end = 22.dp, bottom = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -553,7 +572,8 @@ private fun TranscriptionTextDisplay(
                     sizeSp = cantoneseSize,
                     emptyFallback = "No Cantonese yet.",
                     contentDescription = "Cantonese caption",
-                    typewriter = false
+                    typewriter = false,
+                    scrollState = cantoneseScrollState
                 )
             }
         }
